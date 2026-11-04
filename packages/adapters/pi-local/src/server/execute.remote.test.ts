@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -102,6 +102,7 @@ vi.mock("./models.js", async () => {
 });
 
 import { execute } from "./execute.js";
+import { sessionCodec } from "./index.js";
 
 describe("pi remote execution", () => {
   const cleanupDirs: string[] = [];
@@ -113,6 +114,67 @@ describe("pi remote execution", () => {
       if (!dir) continue;
       await rm(dir, { recursive: true, force: true }).catch(() => undefined);
     }
+  });
+
+  it("persists the delivery checkpoint through the codec and omits covered summaries on the next actual adapter run", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "pi-summary-roundtrip-"));
+    cleanupDirs.push(rootDir);
+    let turn = 0;
+    const persistReply = async (...raw: unknown[]) => {
+      const args = raw[2] as string[];
+      const file = args[args.indexOf("--session") + 1];
+      const prior = (await readFile(file, "utf8")).trim();
+      const existing = prior ? prior.split("\n").map(line => JSON.parse(line)) : [];
+      if (!existing.length) await appendFile(file, JSON.stringify({ type: "session", version: 3, id: "header", cwd: rootDir }) + "\n");
+      const user = { type: "message", id: `u-${++turn}`, parentId: existing.at(-1)?.id ?? null, message: { role: "user", content: [{ type: "text", text: args.at(-1) }] } };
+      const assistant = { type: "message", id: `a-${turn}`, parentId: user.id, message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] } };
+      await appendFile(file, JSON.stringify(user) + "\n" + JSON.stringify(assistant) + "\n");
+      return { exitCode: 0, signal: null, timedOut: false, stdout: JSON.stringify({ type: "message_end", message: assistant.message }) + "\n" + JSON.stringify({ type: "agent_end", messages: [assistant.message] }) + "\n", stderr: "", pid: 123, startedAt: new Date().toISOString() };
+    };
+    const fixture = createPromptContextFixture();
+    fixture.executionContinuation.completedWork = "COVERED SUMMARY";
+    Object.assign(fixture.paperclipWake, { continuationSummary: { body: "COVERED SUMMARY", key: "continuation-summary" } });
+    const base = {
+      runId: "prior-run", agent: { id: "agent-1", companyId: "company-1", name: "Pi", adapterType: "pi_local", adapterConfig: {} },
+      config: { command: "pi", model: "openai/gpt-5.4-mini", cwd: rootDir },
+      context: { ...fixture, paperclipWorkspace: { cwd: rootDir, source: "project_primary" } }, onLog: async () => {},
+    };
+    runChildProcess.mockImplementationOnce(persistReply);
+    const first = await execute({ ...base, runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: null } } as never);
+    expect(first.sessionParams?.paperclipDelivery).toBeTruthy();
+    const stored = sessionCodec.serialize(first.sessionParams ?? null);
+    const restored = sessionCodec.deserialize(stored);
+    runChildProcess.mockImplementationOnce(persistReply);
+    await execute({ ...base, runId: "next-run", runtime: { sessionId: first.sessionId, sessionParams: restored, sessionDisplayId: null, taskKey: null } } as never);
+    const secondArgs = (runChildProcess.mock.calls.at(-1) as unknown as [string, string, string[]])[2];
+    expect(secondArgs.at(-1)).not.toContain("COVERED SUMMARY");
+    expect(secondArgs.at(-1)).toContain("comment-second");
+    expect(secondArgs.at(-1)).toContain("/documents/continuation-summary");
+  });
+
+  it("fresh fallback restores one summary and returns the successful new session rather than clearing it", async () => {
+    const rootDir = await mkdtemp(path.join(os.tmpdir(), "pi-summary-fallback-"));
+    cleanupDirs.push(rootDir);
+    const oldSession = path.join(rootDir, "old.jsonl");
+    await writeFile(oldSession, JSON.stringify({ type: "session", version: 3, id: "old", cwd: rootDir }) + "\n");
+    const fixture = createPromptContextFixture();
+    fixture.executionContinuation.completedWork = "FALLBACK SUMMARY";
+    Object.assign(fixture.paperclipWake, { continuationSummary: { body: "FALLBACK SUMMARY", key: "continuation-summary" } });
+    runChildProcess.mockImplementationOnce(async () => ({ exitCode: 1, signal: null, timedOut: false, stdout: "", stderr: "Session not found", pid: 123, startedAt: new Date().toISOString() }));
+    const result = await execute({
+      runId: "retry-run", agent: { id: "agent-1", companyId: "company-1", name: "Pi", adapterType: "pi_local", adapterConfig: {} },
+      runtime: { sessionId: oldSession, sessionParams: { sessionId: oldSession, cwd: rootDir }, sessionDisplayId: null, taskKey: null },
+      config: { command: "pi", model: "openai/gpt-5.4-mini", cwd: rootDir },
+      context: { ...fixture, paperclipWorkspace: { cwd: rootDir, source: "project_primary" } }, onLog: async () => {},
+    } as never);
+    const args = (runChildProcess.mock.calls.at(-1) as unknown as [string, string, string[]])[2];
+    const freshSession = args[args.indexOf("--session") + 1];
+    expect(freshSession).not.toBe(oldSession);
+    expect(result.sessionId).toBe(freshSession);
+    expect(result.clearSession).toBe(false);
+    expect(args.at(-1)).toContain("FALLBACK SUMMARY");
+    expect(args.at(-1)).not.toContain("Issue continuation summary:");
+    expect(args.at(-1)).toContain("comment-first");
   });
 
   it("prepares the workspace, syncs Pi skills, and restores workspace changes for remote SSH execution", async () => {

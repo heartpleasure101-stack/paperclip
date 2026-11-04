@@ -1,4 +1,5 @@
 import type { AdapterSessionCodec } from "@paperclipai/adapter-utils";
+import { parseDeliveryCheckpoint } from "./summary-policy.js";
 
 function readNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -17,9 +18,11 @@ export const sessionCodec: AdapterSessionCodec = {
       readNonEmptyString(record.cwd) ??
       readNonEmptyString(record.workdir) ??
       readNonEmptyString(record.folder);
+    const paperclipDelivery = parseDeliveryCheckpoint(record.paperclipDelivery);
     return {
       sessionId,
       ...(cwd ? { cwd } : {}),
+      ...(paperclipDelivery ? { paperclipDelivery } : {}),
     };
   },
   serialize(params: Record<string, unknown> | null) {
@@ -33,9 +36,11 @@ export const sessionCodec: AdapterSessionCodec = {
       readNonEmptyString(params.cwd) ??
       readNonEmptyString(params.workdir) ??
       readNonEmptyString(params.folder);
+    const paperclipDelivery = parseDeliveryCheckpoint(params.paperclipDelivery);
     return {
       sessionId,
       ...(cwd ? { cwd } : {}),
+      ...(paperclipDelivery ? { paperclipDelivery } : {}),
     };
   },
   getDisplayId(params: Record<string, unknown> | null) {

@@ -1,6 +1,7 @@
 import { createProviderStoppedBoundary } from "@paperclipai/adapter-utils/provider-stopped-boundary";
 import { createUsageCheckpointLog } from "@paperclipai/adapter-utils/usage-checkpoint";
 import fs from "node:fs/promises";
+import { createDeliveryCheckpoint, decideSummaryPolicy, type DeliveryCheckpoint } from "./summary-policy.js";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -662,11 +663,38 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       return args;
     };
 
+    // Local-only evidence reader. Remote, oversized, malformed, or unavailable
+    // sessions take the conservative handoff path; never run arbitrary code to
+    // recover proof or infer it merely from the session header.
+    const readSummarySession = async (sessionFile: string): Promise<unknown[]> => {
+      if (executionTargetIsRemote) return [];
+      try {
+        const stat = await fs.stat(sessionFile);
+        if (stat.size > 16 * 1024 * 1024) return [];
+        return (await fs.readFile(sessionFile, "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
+      } catch { return []; }
+    };
+    const summaryIdentity = {
+      companyId: agent.companyId,
+      agentId: agent.id,
+      issueId: asString(parseObject(parseObject(context.paperclipWake).issue).id, ""),
+    };
     const runAttempt = async (sessionFile: string) => {
       const attemptResumedSession = canResumeSession && sessionFile === sessionPath;
       await hydrateFreshSessionHandoff(ctx, { resumedSession: attemptResumedSession });
-      const attemptSections = selectPaperclipPromptSections(context, {
+      const summaryDecision = decideSummaryPolicy({
+        records: attemptResumedSession ? await readSummarySession(sessionFile) : [],
+        checkpoint: runtimeSessionParams.paperclipDelivery,
+        sessionId: sessionFile,
+        identity: summaryIdentity,
+        wake: context.paperclipWake,
         resumedSession: attemptResumedSession,
+      });
+      await onLog("stdout", `[paperclip] Pi summary policy: ${summaryDecision.policy} (${summaryDecision.reason}).\n`);
+      const attemptSections = selectPaperclipPromptSections(context, {
+        // Do not select the server's message delta without proof of its base.
+        resumedSession: attemptResumedSession && summaryDecision.historyVerified,
+        summaryPolicy: summaryDecision.policy,
         includeCommunicationGuidance: false,
         includeExecutionContract: systemOwnsDefaultPolicy ? false : undefined,
       });
@@ -771,7 +799,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         parsed.usage = retained.usage;
         parsed.sawAgentEnd = retained.sawAgentEnd;
       }
-      return { proc, rawStderr: proc.stderr, parsed };
+      const deliveryCheckpoint = !proc.timedOut && proc.exitCode === 0 && !proc.signal && parsed.errors.length === 0 && parsed.sawAgentEnd
+        ? createDeliveryCheckpoint({
+            records: await readSummarySession(sessionFile), prompt: userPrompt,
+            runId, sessionId: sessionFile, identity: summaryIdentity,
+          })
+        : null;
+      return { proc, rawStderr: proc.stderr, parsed, deliveryCheckpoint, sessionFile };
     };
 
     const toResult = (
@@ -779,6 +813,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         proc: { exitCode: number | null; signal: string | null; timedOut: boolean; stdout: string; stderr: string; errorCode?: string | null };
         rawStderr: string;
         parsed: ReturnType<typeof parsePiJsonl>;
+        deliveryCheckpoint: DeliveryCheckpoint | null;
+        sessionFile: string;
       },
       clearSessionOnMissingSession = false,
     ): AdapterExecutionResult => {
@@ -794,11 +830,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         };
       }
 
-      const resolvedSessionId = clearSessionOnMissingSession ? null : sessionPath;
+      const resolvedSessionId = clearSessionOnMissingSession ? null : attempt.sessionFile;
       const resolvedSessionParams = resolvedSessionId
         ? {
             sessionId: resolvedSessionId,
             cwd: effectiveExecutionCwd,
+            ...(attempt.deliveryCheckpoint ? { paperclipDelivery: attempt.deliveryCheckpoint } : {}),
             ...(workspaceId ? { workspaceId } : {}),
             ...(workspaceRepoUrl ? { repoUrl: workspaceRepoUrl } : {}),
             ...(workspaceRepoRef ? { repoRef: workspaceRepoRef } : {}),
@@ -884,7 +921,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           }
         }
         const retry = await runAttempt(newSessionPath);
-        return toResult(retry, true);
+        const retryFailed = retry.proc.timedOut || Boolean(retry.proc.signal) || (retry.proc.exitCode ?? -1) !== 0 || retry.parsed.errors.length > 0;
+        return toResult(retry, retryFailed);
       }
 
       return toResult(initial);
