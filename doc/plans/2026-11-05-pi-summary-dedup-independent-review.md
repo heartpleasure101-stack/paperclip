@@ -143,3 +143,73 @@ build、全量 vitest、lint、`openspec validate`、server／UI 整合、`pnpm 
 - 有 1 項 WARNING（空白比較階段，建議修或改規格）與 3 項 SUGGESTION。
 - **尚不可封存**：驗證文件缺、未 commit／PR、全量檢查與 strict validate 未完成。此報告不是全綠聲明。
 - 修正（若 worker 採納 WARNING-1／SUGGESTION-1）會改變 `server-utils.ts` 與測試雜湊，須重跑 §5 並重審。
+
+---
+
+# 附錄 A：修正後複審（Re-review）
+
+複審日期：2026-11-05。**以上 §0–§8 為首輪審查原文，保留不改**；首輪針對的舊快照（`server-utils.ts` `1263744f…`、`continuation-summary-dedup.test.ts` `c1906641…`）已被取代。本附錄只記錄對新快照的結論。
+
+## A.1 複審快照（SHA256；real workspace 與 `/private/tmp/pi-dedup-scratch-final` 在測試前、後各比對一次，五檔皆 MATCH）
+
+```
+417b4066d33ffe1b77982861fa8621f706acac5efab1c6e0a5a23b5e672a8b9d  packages/adapter-utils/src/server-utils.ts                          (已改)
+222ace23dcfe3edc282324fd4f422a07c627e6962dcaa3992e3991301a82bc85  packages/adapters/opencode-local/src/server/execute.test.ts         (同首輪)
+036a23cdb8c0ab34f2e99a270647a636fb066c229ea957d75ed4e631145cef20  packages/adapters/pi-local/src/server/execute.ts                    (同首輪)
+2a516bbf2461b5f3eeb1cc9b0e7653d8c51c2677c157b32e1ba9b6be4d4101e6  packages/adapter-utils/src/continuation-summary-dedup.test.ts       (已改)
+d55586be6d5a24a730661cedf37cdd7500a6957977df463129944e05a8f04a33  packages/adapters/pi-local/src/server/execute.summary-dedup.test.ts (同首輪)
+```
+實作已由 worker 提交（`a240beb69` fix；`fd5f69382` 驗證紀錄），複審時工作樹乾淨。本複審未改實作、未 commit／push、未勾 tasks、未封存。
+
+## A.2 修正內容（`server-utils.ts:3031–3056`）
+
+去重條件現為：選項 `=== true`；`completedWork` 為非空字串；**原始輸入** `parseObject(parseObject(value).continuationSummary).body` 為字串且 `=== completedWork`（不再比對 normalizer 修剪後的 `normalized.continuationSummary.body`）；且 `completedWork` 不含 `[\u0000-\u0008\u000b-\u001f\u007f]`（與證據區 `encodeData` 剝除的字元集合完全相同）。非去重分支仍輸出 normalizer 修剪後的 body，行為與關閉時一致。
+
+## A.3 各 finding 狀態
+
+| Finding | 結果 | 證據 |
+|---|---|---|
+| WARNING-1 比較階段（修剪後 vs 原始） | **已解決** | 探測 A（摘要 `"  ALPHA\n"`、completedWork `"ALPHA"`）→ 不去重、輸出與關閉時相同；探測 B（反向）→ 不去重；探測 C（兩者皆 `"  ALPHA\n"`）→ 去重，證據區保有完整含空白原文（測試以 `JSON.stringify({interactionOutcomes:[], completedWork: padded})` 命中）。測試：`原始輸入前後空白不對稱…`（兩方向＋三種 completedWork 前後空白變體，逐字等於關閉輸出）、`原始輸入兩份含相同前後空白…` |
+| SUGGESTION-1 控制字元／`\r` 被證據區剝除 | **已解決** | 探測 D（tab，保留為 `\t` 轉義）→ 去重；E（`\u000b`）、G（NUL）→ 不去重且輸出等同關閉；測試 `it.each` 覆蓋 `\u0007`、CRLF 的 `\r`、`\u007f`，斷言無引用句且 `on === off`。不在剝除集合的 `\u0085` 等，探測 F 去重，JSON 原樣保留，正確 |
+| SUGGESTION-2 非 Pi 消費者 grep 證據 | **程式面不變、文件層未驗證** | `grep dedupeIdenticalContinuationSummary` 僅 `server-utils.ts`、`pi-local/execute.ts` 與新測試；是否已記入驗證文件由 finalizer 確認 |
+| SUGGESTION-3 驗證文件內容（PR URL、回滾、3.1 限制） | **未由我驗證** | 未審驗證文件內容，亦未查遠端 |
+
+額外邊界探測（皆符合預期）：envelope `version: 2`（無證據區）→ 不去重；`resumedSession: true` → 去重且保留證據區；`<`、`"` 編碼後證據區仍含完整文字（探測 J）；摘要 body 為數字／物件／缺失 → 輸出同關閉（測試 `摘要正文不是字串…`）。
+
+## A.4 Scenario 對照（新快照）
+
+| Scenario | 實作 | 測試 | 判定 |
+|---|---|---|---|
+| 完全相同摘要 | `server-utils.ts:3037–3056` | renderer 案例 1；Pi 新 session／接續 | 通過 |
+| 不同正文（含空白、換行、大小寫，**兩個方向**） | 原始字串 `===` | 案例 2、3（5 變體）、空白不對稱案例 | 通過（WARNING-1 已解） |
+| 單份或沒有摘要 | 需 completedWork 非空字串＋原始 body 字串 | 案例 4、兩份皆無、Pi 單份 | 通過 |
+| 不明格式或不完整呈現 | 非字串／空／無 executionContinuation／含剝除字元皆不去重 | 案例 5、控制字元 it.each、非字串 body、伺服器端截斷 | 通過 |
+| 不同 session 路徑 | `execute.ts:690` 每 attempt 傳 true | Pi 5 測試（新／續／續但不同／fresh retry／單份）；renderer 新／續 | 通過 |
+| 摘要 metadata 與信任邊界 | 引用句＋證據區警語；截斷標記保留 | 案例 1、7 | 通過 |
+| 新事件完整 | 只換一行值 | 案例 8 | 通過 |
+| 其他區塊文字恰巧相同 | 無全域替換 | 案例 11 | 通過 |
+| 特殊字元與原始資料 | 原始字串比較；輸出走既有 `encodeData` | 案例 6、控制字元、案例 12 | 通過（SUGGESTION-1 已解） |
+| 策略未啟用 | 預設 `undefined` | 案例 10 | 通過 |
+| 非 Pi adapter | 僅 pi-local 傳入 | `opencode-local/execute.test.ts` 新案例 | 通過 |
+
+## A.5 獨立執行結果（`/private/tmp/pi-dedup-scratch-final`，`PATH=/Users/Hermes/.nvm/versions/node/v24.18.0/bin:$PATH`，`env -u GIT_EDITOR`）
+
+```
+packages/adapter-utils:           npx vitest run src/continuation-summary-dedup.test.ts     -> Test Files 1 passed; Tests 33 passed (33)  (首輪為 28)
+packages/adapters/pi-local:       npx vitest run src/server/execute.summary-dedup.test.ts   -> Test Files 1 passed; Tests 5 passed (5)
+packages/adapters/opencode-local: npx vitest run src/server/execute.test.ts                 -> Test Files 1 passed; Tests 14 passed (14)
+tsc --noEmit（adapter-utils / pi-local / opencode-local）                                   -> 三者 exit 0
+```
+揭露：我在 final scratch 的 `packages/adapter-utils/src/` 暫放 `zz-review2-probe.test.ts`（結果寫入 `/tmp/pi-dedup-review2-probe.txt`），已用 `unlink` 刪除；刪除後 scratch 工作樹乾淨，五檔雜湊仍 MATCH。第一次嘗試因 hook 禁止遞迴／強制刪除指令而整個被拒（未執行任何東西）。未碰舊 scratch `/private/tmp/pi-dedup-scratch`。
+
+## A.6 範圍正確性 vs. 全域環境限制
+
+- **功能範圍**：實作與規格 11 個 scenario 在新快照上一致，無未解的 CRITICAL／WARNING 功能問題。
+- **不計入最終驗收**：舊 scratch 的全量 vitest（`/tmp/pi-dedup-pr/test-run-full.log`）測的是修正前快照，且可能含我首輪的探測檔，**不得**當作修正後程式碼的驗收證據。
+- **全域環境限制（非本 change 引起，我未獨立重現）**：master 上 cargo 缺席造成 `paperclip-runner` rust typecheck／build 失敗；`sandbox-managed-runtime` 的 1 項失敗屬 worker 稱既有。PR 描述須如實列出，勿寫全綠。
+- **仍未驗證／未完成（由 finalizer 處理）**：`openspec validate --strict` 與 status（CLI 不在 PATH，我未跑）、遠端 draft PR（我未查）、tasks 3.1–3.3 勾選、封存。
+- 本期僅 phase 1；不含 stage 2、部署、merge。
+
+## A.7 複審結論
+
+**無未解的 CRITICAL 或 WARNING 功能問題。** 首輪 WARNING-1 與 SUGGESTION-1 已解決，新增回歸案例涵蓋兩個空白方向、原始 vs. 修剪輸入、控制字元與證據區完整保留。剩餘為文件／流程項（SUGGESTION-2/3、strict validate、PR、全量環境限制說明），不是功能缺失。若之後五檔任一雜湊改變，本附錄失效須重審。

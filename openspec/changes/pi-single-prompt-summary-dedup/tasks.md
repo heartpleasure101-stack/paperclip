@@ -16,7 +16,7 @@
 ## 3. 整合驗收與交付
 
 - [ ] 3.1 執行受影響 suites、型別檢查及專案要求的 PR-ready 全量檢查；於驗證文件保留所有失敗及環境限制，只有證據充分時標記完成，不隱藏失敗。
-- [ ] 3.2 由另一個全新 Pi Claude Sonnet 5.5 session 獨立核對 spec／tasks／實作與回歸證據，記錄 findings；修正問題並重新驗證，確認無未解重大問題。
+- [x] 3.2 由另一個全新 Pi Claude Sonnet 5.5 session 獨立核對 spec／tasks／實作與回歸證據，記錄 findings；修正問題並重新驗證，確認無未解重大問題。
 - [ ] 3.3 執行 OpenSpec strict validate 與 apply/status 檢查，確認 tracked tasks 有對應證據；commit 並 push 最終實作與驗證紀錄，更新 PR 的實際結果及限制。
 
 ## Workflow follow-up
