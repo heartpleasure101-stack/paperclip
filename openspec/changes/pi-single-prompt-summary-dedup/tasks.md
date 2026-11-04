@@ -2,16 +2,16 @@
 
 ## 1. 工作分支與可審查規格
 
-- [ ] 1.1 查核目前 master 的型別、renderer 與 Pi prompt 入口，以及專案／scoped instructions；於驗證文件記錄承接點與實際驗證指令。
-- [ ] 1.2 將 doc/plans 下四份本次探索草稿標明被本 OpenSpec change 取代；建立獨立新分支，commit 正式規格及草稿來源說明，確認無無關檔案混入。
-- [ ] 1.3 推送至 heartpleasure101-stack/paperclip，在該 fork 以 master 為 base 建立 draft PR；依專案 PR template 填寫並記錄 URL，確認非官方上游 PR。
+- [x] 1.1 查核目前 master 的型別、renderer 與 Pi prompt 入口，以及專案／scoped instructions；於驗證文件記錄承接點與實際驗證指令。
+- [x] 1.2 將 doc/plans 下四份本次探索草稿標明被本 OpenSpec change 取代；建立獨立新分支，commit 正式規格及草稿來源說明，確認無無關檔案混入。
+- [x] 1.3 推送至 heartpleasure101-stack/paperclip，在該 fork 以 master 為 base 建立 draft PR；依專案 PR template 填寫並記錄 URL，確認非官方上游 PR。
 
 ## 2. 單次摘要呈現
 
-- [ ] 2.1 在共用 renderer 增加預設關閉的窄 opt-in，完成嚴格相等去重；同時新增相同／不同／單份／空值／空白差異／特殊字元／截斷／metadata／輸入不變的回歸案例，對應 spec scenarios 並執行通過。
-- [ ] 2.2 保留唯一完整正文與歷史證據信任邊界，不全域替換；以新事件、來源、審批與相同文字獨立留言的案例驗證內容不遺漏，並記錄設計對照。
-- [ ] 2.3 僅由 Pi 在實際 prompt 建立入口啟用選項，加入新 session／接續／fresh retry 與非 Pi 預設不變的入口測試，執行相關 suites 通過。
-- [ ] 2.4 將同一 fixture 的策略關閉／開啟最終 prompt bytes、正文份數與必要事件完整性加入可重現測試或量測，於 doc/plans/2026-11-04-pi-summary-dedup-verification.md 附實際指令、輸出與回滾步驟，不宣稱未量測的 token 或費用節省。
+- [x] 2.1 在共用 renderer 增加預設關閉的窄 opt-in，完成嚴格相等去重；同時新增相同／不同／單份／空值／空白差異／特殊字元／截斷／metadata／輸入不變的回歸案例，對應 spec scenarios 並執行通過。
+- [x] 2.2 保留唯一完整正文與歷史證據信任邊界，不全域替換；以新事件、來源、審批與相同文字獨立留言的案例驗證內容不遺漏，並記錄設計對照。
+- [x] 2.3 僅由 Pi 在實際 prompt 建立入口啟用選項，加入新 session／接續／fresh retry 與非 Pi 預設不變的入口測試，執行相關 suites 通過。
+- [x] 2.4 將同一 fixture 的策略關閉／開啟最終 prompt bytes、正文份數與必要事件完整性加入可重現測試或量測，於 doc/plans/2026-11-04-pi-summary-dedup-verification.md 附實際指令、輸出與回滾步驟，不宣稱未量測的 token 或費用節省。
 
 ## 3. 整合驗收與交付
 
