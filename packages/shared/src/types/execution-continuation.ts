@@ -49,6 +49,19 @@ export interface ExecutionContinuationEnvelope {
   };
   recoveryOutcomes?: Array<{ recoveryActionId: string; decision: unknown }>;
   completedWork: string | null;
+  /** Server-only exact regeneration proof, never accepted from comment text. */
+  summaryProvenance?: {
+    version: 1;
+    kind: "regenerated-own-run";
+    companyId: string;
+    issueId: string;
+    agentId: string;
+    runId: string;
+    documentRevisionId: string;
+    bodyHash: string;
+    previousSummaryHash: string;
+    resultHash: string;
+  };
   /** Start a new turn from history; never replay prior tool calls automatically. */
   interruptedRunId?: string;
   /** Completed mutations are context, never instructions to replay them. */

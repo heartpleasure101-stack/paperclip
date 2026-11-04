@@ -1,7 +1,8 @@
 import { createProviderStoppedBoundary } from "@paperclipai/adapter-utils/provider-stopped-boundary";
 import { createUsageCheckpointLog } from "@paperclipai/adapter-utils/usage-checkpoint";
 import fs from "node:fs/promises";
-import { createDeliveryCheckpoint, decideSummaryPolicy, type DeliveryCheckpoint } from "./summary-policy.js";
+import { activeCompactionId, createDeliveryCheckpoint, decideSummaryPolicy, summaryInputForCheckpoint, type DeliveryCheckpoint } from "./summary-policy.js";
+import { buildContextGuardSource } from "./context-guard.js";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -637,7 +638,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       return notes;
     })();
 
-    const buildArgs = (sessionFile: string, userPrompt: string): string[] => {
+    const buildArgs = (sessionFile: string, userPrompt: string, contextGuardPath?: string): string[] => {
       const args: string[] = [];
 
       // Use JSON mode for structured output with print mode (non-interactive)
@@ -654,6 +655,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       args.push("--tools", "read,bash,edit,write,grep,find,ls");
       args.push("--session", sessionFile);
       args.push("--skill", remoteSkillsDir ?? PI_AGENT_SKILLS_DIR);
+      if (contextGuardPath) args.push("--extension", contextGuardPath);
 
       if (extraArgs.length > 0) args.push(...extraArgs);
 
@@ -679,11 +681,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       agentId: agent.id,
       issueId: asString(parseObject(parseObject(context.paperclipWake).issue).id, ""),
     };
+    const contextGuardDirs: string[] = [];
     const runAttempt = async (sessionFile: string) => {
       const attemptResumedSession = canResumeSession && sessionFile === sessionPath;
       await hydrateFreshSessionHandoff(ctx, { resumedSession: attemptResumedSession });
+      const summaryRecords = attemptResumedSession ? await readSummarySession(sessionFile) : [];
       const summaryDecision = decideSummaryPolicy({
-        records: attemptResumedSession ? await readSummarySession(sessionFile) : [],
+        records: summaryRecords,
         checkpoint: runtimeSessionParams.paperclipDelivery,
         sessionId: sessionFile,
         identity: summaryIdentity,
@@ -692,8 +696,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       });
       await onLog("stdout", `[paperclip] Pi summary policy: ${summaryDecision.policy} (${summaryDecision.reason}).\n`);
       const attemptSections = selectPaperclipPromptSections(context, {
-        // Do not select the server's message delta without proof of its base.
-        resumedSession: attemptResumedSession && summaryDecision.historyVerified,
+        // Summary continuity and event-delta coverage are separate decisions.
+        resumedSession: attemptResumedSession,
+        resumeDeltaVerified: summaryDecision.historyVerified,
         summaryPolicy: summaryDecision.policy,
         includeCommunicationGuidance: false,
         includeExecutionContract: systemOwnsDefaultPolicy ? false : undefined,
@@ -727,7 +732,28 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         sessionHandoffChars: sessionHandoffNote.length,
         heartbeatPromptChars: attemptRenderedHeartbeatPrompt.length,
       };
-      const args = buildArgs(sessionFile, userPrompt);
+      let contextGuardPath: string | undefined;
+      if (!executionTargetIsRemote && summaryIdentity.issueId) {
+        const fullPrompt = (policy: "deduplicate" | "omit-covered") => {
+          const sections = selectPaperclipPromptSections(context, {
+            resumedSession: attemptResumedSession, resumeDeltaVerified: false,
+            summaryPolicy: policy, includeCommunicationGuidance: false,
+            includeExecutionContract: systemOwnsDefaultPolicy ? false : undefined,
+          });
+          return joinPromptSections([sections.wakePrompt, sections.taskContextNote, sessionHandoffNote]);
+        };
+        const directory = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-pi-context-"));
+        contextGuardDirs.push(directory);
+        contextGuardPath = path.join(directory, "guard.mjs");
+        await fs.writeFile(contextGuardPath, buildContextGuardSource({
+          initialCompactionId: activeCompactionId(summaryRecords),
+          attemptPrompt: userPrompt,
+          initialContextEditIds: summaryRecords.map(parseObject).filter(entry => entry.type === "context_edit").map(entry => asString(entry.id, "")),
+          eventsPrompt: fullPrompt(summaryDecision.policy),
+          fallbackPrompt: fullPrompt("deduplicate"),
+        }), { mode: 0o600 });
+      }
+      const args = buildArgs(sessionFile, userPrompt, contextGuardPath);
       if (onMeta) {
         await onMeta({
           adapterType: "pi_local",
@@ -803,6 +829,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         ? createDeliveryCheckpoint({
             records: await readSummarySession(sessionFile), prompt: userPrompt,
             runId, sessionId: sessionFile, identity: summaryIdentity,
+            inputSummary: summaryInputForCheckpoint(context.paperclipWake),
+            resultSummary: parsed.finalMessage ?? parsed.messages.join("\n\n").trim(),
+            fullSnapshot: !summaryDecision.historyVerified,
+            previousCheckpoint: attemptResumedSession ? runtimeSessionParams.paperclipDelivery : null,
           })
         : null;
       return { proc, rawStderr: proc.stderr, parsed, deliveryCheckpoint, sessionFile };
@@ -934,6 +964,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           paperclipBridge?.stop(),
           restoreRemoteWorkspace?.(),
           localSkillsDir ? fs.rm(path.dirname(localSkillsDir), { recursive: true, force: true }).catch(() => undefined) : Promise.resolve(),
+          ...contextGuardDirs.map(directory => fs.rm(directory, { recursive: true, force: true }).catch(() => undefined)),
         ]);
       }
     }

@@ -1,5 +1,6 @@
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
+import { runInNewContext } from "node:vm";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPromptContextFixture } from "@paperclipai/adapter-utils/test-fixtures/prompt-context";
@@ -120,6 +121,7 @@ describe("pi remote execution", () => {
     const rootDir = await mkdtemp(path.join(os.tmpdir(), "pi-summary-roundtrip-"));
     cleanupDirs.push(rootDir);
     let turn = 0;
+    const guardPaths: string[] = [];
     const persistReply = async (...raw: unknown[]) => {
       const args = raw[2] as string[];
       const file = args[args.indexOf("--session") + 1];
@@ -128,7 +130,25 @@ describe("pi remote execution", () => {
       if (!existing.length) await appendFile(file, JSON.stringify({ type: "session", version: 3, id: "header", cwd: rootDir }) + "\n");
       const user = { type: "message", id: `u-${++turn}`, parentId: existing.at(-1)?.id ?? null, message: { role: "user", content: [{ type: "text", text: args.at(-1) }] } };
       const assistant = { type: "message", id: `a-${turn}`, parentId: user.id, message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] } };
-      await appendFile(file, JSON.stringify(user) + "\n" + JSON.stringify(assistant) + "\n");
+      const guardPath = args[args.indexOf("--extension") + 1];
+      expect(args).toContain("--extension");
+      guardPaths.push(guardPath);
+      const source = await readFile(guardPath, "utf8");
+      let compaction: Record<string, unknown> | null = null;
+      if (turn === 2) {
+        // Simulate Pi compacting AFTER adapter policy selection but BEFORE its
+        // model request. The actual generated extension repairs the delta.
+        compaction = { type: "compaction", id: "during-start", parentId: user.id, firstKeptEntryId: "during-start", summary: "Native prior history", tokensBefore: 50000 };
+        const register = runInNewContext(source.replace("export default function register", "function register") + "; register;");
+        let hook: Function | undefined;
+        register({ on: (_name: string, callback: Function) => { hook = callback; } });
+        const repair = hook!({ messages: [{ role: "user", content: "newest direction" }] }, { sessionManager: { getBranch: () => [compaction] } });
+        expect(repair.messages[0].content).toContain("comment-first");
+        expect(repair.messages[0].content).not.toContain("COVERED SUMMARY");
+        expect(repair.messages.at(-1).content).toBe("newest direction");
+        assistant.parentId = "during-start";
+      }
+      await appendFile(file, [user, ...(compaction ? [compaction] : []), assistant].map(value => JSON.stringify(value)).join("\n") + "\n");
       return { exitCode: 0, signal: null, timedOut: false, stdout: JSON.stringify({ type: "message_end", message: assistant.message }) + "\n" + JSON.stringify({ type: "agent_end", messages: [assistant.message] }) + "\n", stderr: "", pid: 123, startedAt: new Date().toISOString() };
     };
     const fixture = createPromptContextFixture();
@@ -150,6 +170,7 @@ describe("pi remote execution", () => {
     expect(secondArgs.at(-1)).not.toContain("COVERED SUMMARY");
     expect(secondArgs.at(-1)).toContain("comment-second");
     expect(secondArgs.at(-1)).toContain("/documents/continuation-summary");
+    for (const guardPath of guardPaths) await expect(readFile(guardPath, "utf8")).rejects.toThrow();
   });
 
   it("fresh fallback restores one summary and returns the successful new session rather than clearing it", async () => {

@@ -301,6 +301,7 @@ import { executionFailureRetryCount } from "./execution-recovery-attempt.js";
 import { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 export { buildHeartbeatRunStatusLiveEventPayload } from "./heartbeat-run-status-payload.js";
 import { buildExecutionContinuation, StaleExecutionContinuationError } from "./execution-continuation.js";
+import { verifyPiSummaryProvenance } from "./pi-summary-provenance.js";
 import { renderPaperclipWakePrompt } from "@paperclipai/adapter-utils/server-utils";
 
 import {
@@ -2754,6 +2755,15 @@ export function heartbeatService(
               exposeLowTrustRaw,
             })
           : null;
+      if (agent.adapterType === "pi_local" && executionContinuation) {
+        const proof = await verifyPiSummaryProvenance({
+          db, companyId: agent.companyId, issueId: executionContinuation.issueId,
+          agentId: agent.id,
+          checkpoint: parseObject(taskSessionDecodedParams).paperclipDelivery,
+          summary: safeContinuationSummary,
+        });
+        if (proof) executionContinuation.summaryProvenance = proof;
+      }
       context.executionContinuation = executionContinuation;
       const paperclipWakePayload = await buildPaperclipWakePayload({
         db,

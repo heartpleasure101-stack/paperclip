@@ -16,7 +16,7 @@ function fixture() {
     { type: "message", id: "user", parentId: null, message: { role: "user", content: [{ type: "text", text: prompt }] } },
     { type: "message", id: "assistant", parentId: "user", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] } },
   ];
-  const checkpoint = createDeliveryCheckpoint({ records, prompt, runId: "prior-run", sessionId, identity });
+  const checkpoint = createDeliveryCheckpoint({ records, prompt, runId: "prior-run", sessionId, identity, inputSummary: "SUMMARY" });
   const args = { records, checkpoint, sessionId, identity, wake: context.paperclipWake, resumedSession: true };
   return { args, records, prompt, context };
 }
@@ -57,15 +57,15 @@ describe("Pi summary delivery proof", () => {
     records.push({ type: "message", id: "failed", parentId: "assistant", message: { role: "assistant", stopReason: "error", content: [{ type: "text", text: "failed" }] } });
     expect(decideSummaryPolicy(args).policy).toBe("omit-covered");
   });
-  it("c2.6 已壓縮掉覆蓋來源時走 c2.7，不把磁碟原文當模型記憶", () => {
+  it("缺少原生壓縮欄位時走 c2.7，不把磁碟原文當模型記憶", () => {
     const { args, records } = fixture();
     records.push({ type: "compaction", id: "compact", parentId: "assistant", firstKeptEntryId: "compact", summary: "short summary" } as never);
     expect(decideSummaryPolicy(args).policy).toBe("deduplicate");
   });
-  it("c2.6 只保留最後 delta 仍不足以證明更早訊息覆蓋，走 c2.7 並恢復完整事件", () => {
+  it("不完整壓縮紀錄即使保留最後 prompt 也不能建立覆蓋證據", () => {
     const { args, records } = fixture();
     records.push({ type: "compaction", id: "compact", parentId: "assistant", firstKeptEntryId: "user", summary: "summary of earlier material" } as never);
-    expect(decideSummaryPolicy(args)).toMatchObject({ policy: "deduplicate", historyVerified: false, reason: "compaction-coverage-unverified" });
+    expect(decideSummaryPolicy(args)).toMatchObject({ policy: "deduplicate", historyVerified: false, reason: "projection-unverified" });
   });
   it("分支切換後 checkpoint 不在有效路徑，不省略", () => {
     const { args, records } = fixture();
