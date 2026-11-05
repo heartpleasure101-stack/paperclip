@@ -34,7 +34,7 @@
 
 ## 5. 獨立驗證與可審查交付
 
-- [ ] 5.1 全新 Pi Claude Sonnet 5.5 session 依 verify-change 檢查兩個新 capability、所有 scenario、原斷言、正式 source diff、完整選集及每組退出結果；附獨立報告，修正 findings 後重測／複審，無未解重大問題。
+- [ ] 5.1 全新且獨立於實作者的 agy Gemini 3.8 Flash High session 依 verify-change 檢查兩個新 capability、所有 scenario、原斷言、正式 source diff、完整選集及每組退出結果；附獨立報告，修正 findings 後重測／複審，無未解重大問題。
 - [ ] 5.2 將完整證據與回滾指示提交、push；更新兩個 change 的 tasks／最新驗證文件與兩個 PR 描述，執行 strict validate 與 apply progress 確認沒有未完成必要任務或假綠燈。
 
 ## Workflow follow-up

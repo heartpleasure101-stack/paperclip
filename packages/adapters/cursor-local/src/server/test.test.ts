@@ -1,10 +1,11 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
+import { describe, expect, it, vi } from "vitest";
 import { SANDBOX_INSTALL_COMMAND } from "../index.js";
 import { testEnvironment } from "./test.js";
+import { createInertBypassProbes } from "@paperclipai/adapter-utils/test-fixtures/sandbox-fixture-runner";
+import { createCursorSandboxRunner } from "./cursor-sandbox-test-policy.js";
 
 function buildFakeAgentScript(): string {
   return `#!/bin/sh
@@ -28,45 +29,26 @@ function buildInstallSimulationCommand(commandPath: string): string {
   ].join("\n");
 }
 
-function createSandboxRunner(options: { homeDir: string; installCommandPath: string }) {
-  let counter = 0;
-  const installCommands: string[] = [];
+function createSandboxRunner(options: { root: string; homeDir: string; installCommandPath: string }) {
   const systemPath = "/usr/bin:/bin";
-  return {
-    installCommands,
-    execute: async (input: {
-      command: string;
-      args?: string[];
-      cwd?: string;
-      env?: Record<string, string>;
-      stdin?: string;
-      timeoutMs?: number;
-      onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
-      onSpawn?: (meta: { pid: number; startedAt: string }) => Promise<void>;
-    }) => {
-      counter += 1;
-      const args = [...(input.args ?? [])];
-      if (args[1] === SANDBOX_INSTALL_COMMAND) {
-        installCommands.push(args[1]);
-        args[1] = buildInstallSimulationCommand(options.installCommandPath);
-      }
-      return await runChildProcess(`cursor-envtest-runner-${counter}`, input.command, args, {
-        cwd: input.cwd ?? process.cwd(),
-        env: {
-          ...(input.env ?? {}),
-          HOME: input.env?.HOME ?? options.homeDir,
-          PATH: input.env?.PATH ?? systemPath,
-        },
-        stdin: input.stdin,
-        timeoutSec: Math.max(1, Math.ceil((input.timeoutMs ?? 30_000) / 1000)),
-        graceSec: 5,
-        onLog: input.onLog ?? (async () => {}),
-        onSpawn: input.onSpawn
-          ? async (meta) => input.onSpawn?.({ pid: meta.pid, startedAt: meta.startedAt })
-          : undefined,
-      });
+  // Exactly the registered forms, roots and fixture agent may run; the installer request is only
+  // ever replaced by the local stub and never reaches a real backend.
+  return createCursorSandboxRunner({
+    ownedRoots: [options.root],
+    executables: [options.installCommandPath],
+    installStub: {
+      request: SANDBOX_INSTALL_COMMAND,
+      script: buildInstallSimulationCommand(options.installCommandPath),
     },
-  };
+    backendOptions: {
+      label: "cursor-envtest-runner",
+      transformEnv: (env) => ({
+        ...(env ?? {}),
+        HOME: env?.HOME ?? options.homeDir,
+        PATH: env?.PATH ?? systemPath,
+      }),
+    },
+  });
 }
 
 describe("cursor testEnvironment", () => {
@@ -94,6 +76,27 @@ exit 7
     }
   });
 
+  it("refuses sandbox calls its test did not register before any process starts", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cursor-probe-bypass-"));
+    try {
+      const { calls, sentinelPath } = createInertBypassProbes(root);
+      const runner = createSandboxRunner({
+        root,
+        homeDir: path.join(root, "home"),
+        installCommandPath: path.join(root, "home", ".cursor", "bin", "agent"),
+      });
+      const spawned = vi.fn();
+      for (const { name, call } of calls) {
+        await expect(runner.execute({ ...call, onSpawn: spawned }), name).rejects.toThrow(/blocked before execution/);
+      }
+      expect(spawned).not.toHaveBeenCalled();
+      await expect(fs.stat(sentinelPath)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(runner.installCommands).toEqual([]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("re-resolves the installed agent under ~/.cursor/bin and verifies --version before the hello probe", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cursor-envtest-"));
     const homeDir = path.join(root, "home");
@@ -104,6 +107,7 @@ exit 7
     await fs.mkdir(remoteWorkspace, { recursive: true });
 
     const runner = createSandboxRunner({
+      root,
       homeDir,
       installCommandPath: agentPath,
     });

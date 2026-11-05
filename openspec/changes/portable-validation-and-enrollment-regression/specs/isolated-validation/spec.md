@@ -15,7 +15,7 @@
 - **THEN** 替身仍能執行，原有 CLI 優先順序、明確 command override、提示內容與 PATH 斷言全部成立，且未改動主機預設目錄
 
 #### Scenario: 未登記的指令或暫存程式
-- **WHEN** 假 sandbox runner 收到未明確登記的程式、shell 形狀或自身測試根目錄外的路徑，即使路徑位於系統暫存目錄
+- **WHEN** 假 sandbox runner 收到未明確登記的程式／shell 形狀，或不屬於自有根目錄及明確宣告測試 runtime 的程式路徑，即使路徑位於系統暫存目錄
 - **THEN** 在任何真實 backend 執行前拒絕；已知安裝器若需測試，只能進入明確登記的無網路模擬，不得落入真實執行的 fallback
 
 #### Scenario: 替身命令真的無法找到

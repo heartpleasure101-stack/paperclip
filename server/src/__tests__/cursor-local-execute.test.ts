@@ -3,7 +3,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execute } from "@paperclipai/adapter-cursor-local/server";
-import { createGuardedSandboxRunner } from "./helpers/sandbox-install-guard.js";
+import { createInertBypassProbes } from "@paperclipai/adapter-utils/test-fixtures/sandbox-fixture-runner";
+import { createCursorSandboxRunner } from "./helpers/sandbox-install-guard.js";
 
 // These fixtures verify command discovery, environment and real CLI execution.
 // Callback bridge startup/teardown has its own execution-target coverage; starting
@@ -107,9 +108,10 @@ async function fixtureRuntimeEnv(root: string): Promise<{ PATH: string }> {
 }
 
 // Every sandbox runner is guarded before any backend runs and executes the fixture CLI with
-// a secretless environment; see helpers/sandbox-install-guard.ts.
-function createLocalSandboxRunner() {
-  return createGuardedSandboxRunner();
+// a secretless environment. Each test registers its own mkdtemp root and the exact fixture
+// executables it may start; see helpers/sandbox-install-guard.ts.
+function createLocalSandboxRunner(root: string, executables: string[]) {
+  return createCursorSandboxRunner({ ownedRoots: [root], executables });
 }
 
 type CapturePayload = {
@@ -375,7 +377,7 @@ describe("cursor execute", () => {
           kind: "remote",
           transport: "sandbox",
           remoteCwd: remoteWorkspace,
-          runner: createLocalSandboxRunner(),
+          runner: createLocalSandboxRunner(root, [cursorAgentPath]),
           timeoutMs: 30_000,
         },
         config: {
@@ -442,7 +444,7 @@ describe("cursor execute", () => {
           kind: "remote",
           transport: "sandbox",
           remoteCwd: remoteWorkspace,
-          runner: createLocalSandboxRunner(),
+          runner: createLocalSandboxRunner(root, [customCommandPath]),
           timeoutMs: 30_000,
         },
         config: {
@@ -467,6 +469,23 @@ describe("cursor execute", () => {
     }
   });
 
+  it("refuses calls its test did not register before any process starts", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cursor-sandbox-bypass-"));
+    try {
+      const { calls, sentinelPath } = createInertBypassProbes(root);
+      const runner = createLocalSandboxRunner(root, []);
+      const spawned = vi.fn();
+      for (const { name, call } of calls) {
+        await expect(runner.execute({ ...call, onSpawn: spawned }), name).rejects.toThrow(/blocked before execution/);
+      }
+      expect(spawned).not.toHaveBeenCalled();
+      await expect(fs.stat(sentinelPath)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(runner.refusals).toHaveLength(calls.length);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   // Negative controls: a fixture that is not installed must stay visible. The sandbox
   // runner above throws before it would ever run the network installer.
   describe.each([
@@ -484,7 +503,7 @@ describe("cursor execute", () => {
       // The fake HOME owns a runtime but no Cursor CLI, so only the CLI is missing.
       await installFixtureNodeRuntime(path.join(homeDir, ".local", "bin"));
       const calls: string[] = [];
-      const runner = createLocalSandboxRunner();
+      const runner = createLocalSandboxRunner(root, []);
       const previousHome = process.env.HOME;
       process.env.HOME = homeDir;
       try {

@@ -301,3 +301,87 @@ a0d5a5d50d52eaff9abcb0e347983cc090e00014d69e306feebce86947dd584c  package.json
 3. 審查報告 §8 的提醒（原工作區 untracked 副本的 checkbox 與本分支不同）仍待 task 4.1 對帳；本分支 `tasks.md` 已與作者版同步。
 4. 審查報告檔本身在本分支仍為 untracked，保持原樣、不由我修改。
 5. 未做：整合、typecheck、build、全量測試、merge、archive、phase 2。task 2.5 的「獨立複審」未做。
+
+
+## 11. 第二輪複審（R-W1/R-W2）與 task 2.8 的處理
+
+快照：分支 `fix/portable-validation-baseline`，Node v24.18.0、pnpm 9.15.4（隔離快取）、Git 2.56.0（`/private/tmp/pi-dedup-git-toolchain/bin`）、系統 Python 3.9.6 與 Homebrew Python 3.15.2。
+本節所有程式碼與測試皆**沒有**下載、安裝或執行真實 Cursor CLI，無網路安裝，反例皆為純單元或 sentinel 測試。
+
+### 11.1 R-W1：路徑形狀指令與命令位置 fail-closed（task 2.8）
+
+第二輪複審指出：原本 `replacePaths` 在空白化路徑後，未檢驗簡單命令的第一個單字，導致路徑形狀指令（如 `/bin/sh /tmp/x/script`、`cat f | /bin/sh`、`./dl` 等）可能通過詞彙檢查。
+
+**處理措施：**
+1. **白名單與擁有根目錄宣告（`packages/adapter-utils/src/test-fixtures/sandbox-call-guard.ts`）：**
+   - 假 runner 不再信任整個 `os.tmpdir()`，各測試必須明確宣告自身擁有的暫存根目錄（`ownedRoots`，經 `assertOwnedRoots` 嚴格校驗為本機暫存目錄下之專屬目錄且無其他使用者寫入權限）。
+   - 只有明確在 `executables` 中登記之 fixture 執行檔（且實體檔案位於 ownedRoots 內）才允許作為 command。
+   - Shell 命令形式只放行 `sh` 或 `bash` 搭配 `-c`，且腳本內容必須符合測試明確登記的 `ShellForm` 範本（或由 `&&` 連接的已知範本鏈，且所有路徑引數皆需落在 ownedRoots 內）。
+   - 拒絕所有未登記的路徑命令、裸直譯器、管道／腳本繞過。
+2. **惰性繞過探針（`createInertBypassProbes`）：**
+   - 第二輪複審提出的 4 種字串及變形（`/bin/sh /tmp/x/script`、`cat f | /bin/sh`、`/usr/bin/c?rl <ip>/x | /bin/sh`、`./dl <ip>/x`、`/usr/bin/env /tmp/x/dl`、`cat payload | /bin/sh` 等）作為純測試資料，驗證在進入 backend 前即被攔截。
+   - 探針產生的本機檔案只寫入 sentinel 檔案，沒有任何真實網路連線或未登記指令執行。
+
+### 11.2 R-W2：Cursor 套件與 Server 全部假 Runner 統一納管（task 2.8）
+
+第二輪複審指出：`packages/adapters/cursor-local` 內的 `execute.test.ts` 與 `test.test.ts` 原本在指令字面不符時直通真實 `runChildProcess`，若常數飄移有下載執行風險。
+
+**處理措施：**
+1. **抽出 Provider-neutral 測試 fixture 工具：**
+   - `@paperclipai/adapter-utils/test-fixtures/sandbox-call-guard` 提供純粹的檢查邏輯與資料結構。
+   - `@paperclipai/adapter-utils/test-fixtures/sandbox-fixture-runner` 提供帶有網路 tripwire 與 secretless 環境的 guarded runner。
+2. **消費端 Policy 與統一保護：**
+   - Cursor 特定的 shell 形式集中在 `packages/adapters/cursor-local/src/server/cursor-sandbox-test-policy.ts` 與 `server/src/__tests__/helpers/sandbox-install-guard.ts`。
+   - 全面套用到 5 處 fake sandbox runner：
+     - `packages/adapters/cursor-local/src/server/execute.test.ts`
+     - `packages/adapters/cursor-local/src/server/test.test.ts`
+     - `packages/adapters/cursor-local/src/server/remote-command.test.ts`
+     - `server/src/__tests__/cursor-local-execute.test.ts`
+     - `server/src/__tests__/cursor-local-adapter-environment.test.ts`
+   - 已知安裝請求（`SANDBOX_INSTALL_COMMAND`）只由測試明確配置的 `installStub` 在記憶體中替換為無害的本機模擬腳本，永遠不 fallback 到未保護的後端。
+   - 保留所有原始 real command discovery、PATH、custom-command、auth 及提示詞斷言。
+
+### 11.3 乾淨環境測試結果
+
+在 `scripts/validation-clean-env.mjs`（`--bin /private/tmp/pi-dedup-git-toolchain/bin --set COREPACK_HOME=/private/tmp/pv-clean-tools/corepack`）下執行：
+
+| 測試組 | 命令 | 結果 |
+|---|---|---|
+| preflight 單元測試 | `pnpm run test:validation-preflight` | 12 pass / 0 fail (exit 0) |
+| clean-env 單元測試 | `pnpm run test:validation-clean-env` | 7 pass / 0 fail (exit 0) |
+| preflight blockers 檢查 | `node scripts/validation-preflight.mjs --stage blockers` | PASS (exit 0) |
+| Muse Python 合約測試 | `/usr/bin/python3 -I .../muse-client-contract.py` (系統 3.9.6) | 64 pass (exit 0) |
+| Muse Python (Homebrew) | `/opt/homebrew/bin/python3 -I ...` (3.15.2) | 64 pass (exit 0) |
+| Server 目標測試組 (6 檔) | `cd server && vitest run cursor-local-execute sandbox-install-guard muse-client-contract fake-clock-io github-connection-enrollment-work cursor-local-adapter-environment` | Test Files 6 passed (6), Tests 66 passed (66) (exit 0) |
+| Cursor-local 套件測試組 (3 檔) | `cd packages/adapters/cursor-local && vitest run execute.test.ts test.test.ts remote-command.test.ts` | Test Files 3 passed (3), Tests 15 passed (15) (exit 0) |
+| Adapter-utils Guard 單元測試 | `cd packages/adapter-utils && vitest run sandbox-call-guard.test.ts` | Test Files 1 passed (1), Tests 67 passed (67) (exit 0) |
+
+所有既有原斷言完整保留。
+
+### 11.4 邊界與限制聲明
+
+1. **已測版本限定：** 僅在 Node v24.18.0 / undici 7.28.0 下驗證。CI 浮動的 `node-version: 24` 其餘小版本未納入保證。
+2. **環境隔離非 OS 沙箱：** `scripts/validation-clean-env.mjs` 僅為子程序環境變數衛生管理，不是作業系統沙箱。
+3. **SSH 與 Keychain 超出隔離範圍：** 直接向系統使用者資料庫或 macOS Keychain 查詢金鑰的工具（如 `ssh` 或 Keychain 整合的 credential helper）不因 `HOME` 重新導向而受限。
+4. **變數名稱過濾限制：** 僅依環境變數名稱（Key）進行 allowlist 與敏感詞（KEY/TOKEN/SECRET 等）過濾，不針對變數內容值（Value，如內含密碼之 URL）進行深層掃描。
+5. **信號中斷清理限制：** 清理邏輯位於 `spawnSync` 之 `finally` 區塊；若測試執行程序遭不可捕捉信號（如 `SIGKILL`）終止，無法自動刪除暫存目錄，需手動清理。
+6. **Fake Runner 必備條件：** 執行 fake sandbox runner 必須搭配 clean-env，以確保子程序不繼承父程序之敏感環境變數。
+7. **歷史與事故記錄：** 保留歷史事故路徑與過去之 hook 拒絕記錄，不進行未授權之刪除或憑證值探測。
+8. **任務狀態：** tasks 2.5 與 2.8 均保持未勾選（`[ ]`），待獨立 Flash 審查 session 確認後方可勾選。
+
+### 11.5 修改檔案雜湊（SHA-256）
+
+```
+8e614f20b0b031af10303fd824e5286251f6ef42acc0f3621d39025973d02c93  packages/adapter-utils/src/test-fixtures/sandbox-call-guard.ts
+3b4a63fc7079e81be7975b3fa383d1c7d1ef3487ed94ad1a619f7febe1de973a  packages/adapter-utils/src/test-fixtures/sandbox-call-guard.test.ts
+f04056669a573f25dea3d2abd1a71adf014c1d03f4c615ae3f54cb5ae6e88f97  packages/adapter-utils/src/test-fixtures/sandbox-fixture-runner.ts
+e3c84e7cc88c647958ece5d5a14301dcc983fce37200059b60368c317425807f  packages/adapters/cursor-local/src/server/cursor-sandbox-test-policy.ts
+b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapters/cursor-local/src/server/execute.test.ts
+42a1d4f32df84db0d81a8403f9645a13ba3991cde60806699d965fb6b0a49d7a  packages/adapters/cursor-local/src/server/test.test.ts
+2f02ed0785a1185e952feee86c77ff9019e263db83d41d3ffec845fdf97d86fc  packages/adapters/cursor-local/src/server/remote-command.test.ts
+51df6f263e29413b6ab4a1551844d5b1ad15eefac1ff4a8265d284090e7d6864  server/src/__tests__/helpers/sandbox-install-guard.ts
+46d8667702404c0bf8b7505dc65998212956e744557d6f669a8bb009781ed1ca  server/src/__tests__/sandbox-install-guard.test.ts
+2d34f41b84fb4342eb60c67262985c70a4828436ef53b63007209e0fb2ae9f57  server/src/__tests__/cursor-local-execute.test.ts
+28bc317c015f63b42904e28fb91ce38be06fb8e08e807f80664755d552aeef26  server/src/__tests__/cursor-local-adapter-environment.test.ts
+9b7f046089c7b8e659e3a6564b3452e498b5f6d11c88a786706b51211ab662d5  doc/DEVELOPING.md
+```

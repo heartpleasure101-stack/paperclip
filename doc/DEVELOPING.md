@@ -1132,16 +1132,21 @@ full suites; those take hours and will fail for the same reason.
 
 Fixture rules that keep these tests independent of the host:
 
-- The fake sandbox runner for Cursor tests (`helpers/sandbox-install-guard.ts`) inspects
+- The fake sandbox runner for Cursor tests (`helpers/sandbox-install-guard.ts` in server,
+  and `cursor-sandbox-test-policy.ts` in `packages/adapters/cursor-local`, backed by
+  `@paperclipai/adapter-utils/test-fixtures/sandbox-call-guard`) inspects
   every call before any process starts: the command, its arguments and any stdin that could
-  be executed. It accepts only `sh -c <recognized local script>` and fixture binaries under
-  the temp directory, and refuses installer URLs, `curl`, `wget`, package managers,
-  command substitution, stdin scripts and any word it does not recognize, so a changed or
-  unknown install form fails closed. A refusal means the fixture CLI was not found, which
-  must be fixed in the fixture; never remove the guard to see what the installer prints.
-  Guard tests use inert strings and a recording backend, never a real downloader. The runner
-  also executes the fixture CLI with an allowlisted environment (`HOME`, `PATH`, `LANG`,
-  `LC_ALL`, `TMPDIR` and the adapter's `PAPERCLIP_*` values), not the host environment.
+  be executed. It accepts only `sh -c <recognized local script>` matching registered templates
+  and fixture binaries explicitly registered under the test's owned temp root. It refuses
+  path-shaped commands, unlisted shell forms, pipeline/script bypasses, installer URLs, `curl`,
+  `wget`, package managers, command substitution, stdin scripts and any word it does not recognize,
+  so a changed or unknown install form fails closed. A refusal means the fixture CLI was not found,
+  which must be fixed in the fixture; never remove the guard to see what the installer prints.
+  Known installer simulation runs only through an explicit harmless stub and never falls back to
+  a real backend. Guard tests use inert strings and a recording backend, never a real downloader.
+  The runner also executes the fixture CLI with an allowlisted environment (`HOME`, `PATH`, `LANG`,
+  `LC_ALL`, `TMPDIR` and the adapter's `PAPERCLIP_*` values), not the host environment. Fake runners
+  rely on clean-env execution for parent environment isolation.
 
 - Fake CLIs that start with `#!/usr/bin/env node` get their runtime from their own fake
   `HOME` (`.local/bin/node` linked to `process.execPath`). Do not widen the production
@@ -1200,6 +1205,19 @@ extra variables you choose, but names that look like credentials (`KEY`, `TOKEN`
 This is environment hygiene, **not an operating-system sandbox**. The child still runs as
 your user, can read any file you can read and can reach the network. It does not change the
 parent process, the parent agent's model credentials or any global setting.
+
+Explicit environment isolation limits:
+- Tools that look up home directories or credentials directly in the user database or macOS
+  Keychain (for example `ssh` reading default keys or Keychain-integrated credential helpers)
+  are outside the scope of `HOME` redirection.
+- Environment variable filtering is a name-based filter against known credential and injection
+  keys; it does not scan variable values (for example, credentials embedded inside an arbitrary
+  proxy URL are not scanned).
+- Subprocess cleanup relies on `finally` within `spawnSync`. If the runner process is killed
+  by an uncatchable signal (such as `SIGKILL`), the temporary owned directory cannot be cleaned
+  up automatically and must be removed manually.
+- Clean-env execution through `scripts/validation-clean-env.mjs` is mandatory for running the
+  fake sandbox suites so the child never inherits host environment secrets.
 
 For interactive Vitest watch mode use:
 

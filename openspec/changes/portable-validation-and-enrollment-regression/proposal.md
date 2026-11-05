@@ -28,5 +28,5 @@
 - 預期主要修改 Cursor/Muse/GitHub 測試與 fixtures、輕量 preflight 腳本及開發文件；只有在真實依賴的因果證據證明服務違約時，才修改 GitHub enrollment/event-work 的最小擁有者範圍。
 - 不改其他 adapter 的正式 PATH、不加依賴套件、不改已發布 Muse assets、DB schema、權限或正式服務設定。
 - 新建獨立修復分支與 fork PR，base 為 master；修復分支可用一般 merge commit 整合進原摘要分支以驗證兩個 change，禁止 force-push、GitHub PR 自動 merge 或部署。
-- 使用者已授權：本 agent 研究並撰寫規格；其餘透過 agy 啟動 Pi Claude Sonnet 5.5，自主 commit／push／開 PR、實作、驗證、通過後封存。全域工具及現有服務不變。
+- 使用者已授權：本 agent 研究並撰寫規格；其餘自主 commit／push／開 PR、實作、驗證、通過後封存。2026-11-05 因 Sonnet 配額用盡，使用者改指定 agy Gemini 3.8 Flash High（`gemini-3.8-flash-high`）直接接手執行與獨立審查；既有 Sonnet 產出及未提交修補保留來源記錄，不從零重做，也不再呼叫 Sonnet。全域工具及現有服務不變。
 - 交付目標是解除原 change 的驗收阻礙，不包含摘要第二階段或其他產品重構。

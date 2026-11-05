@@ -1,37 +1,19 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
+import { describe, expect, it, vi } from "vitest";
 import { prepareCursorSandboxCommand } from "./remote-command.js";
+import { createInertBypassProbes } from "@paperclipai/adapter-utils/test-fixtures/sandbox-fixture-runner";
+import { createCursorSandboxRunner } from "./cursor-sandbox-test-policy.js";
 
-function createLocalSandboxRunner() {
-  let counter = 0;
-  return {
-    execute: async (input: {
-      command: string;
-      args?: string[];
-      cwd?: string;
-      env?: Record<string, string>;
-      stdin?: string;
-      timeoutMs?: number;
-      onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
-      onSpawn?: (meta: { pid: number; startedAt: string }) => Promise<void>;
-    }) => {
-      counter += 1;
-      return await runChildProcess(`cursor-remote-command-${counter}`, input.command, input.args ?? [], {
-        cwd: input.cwd ?? process.cwd(),
-        env: input.env ?? {},
-        stdin: input.stdin,
-        timeoutSec: Math.max(1, Math.ceil((input.timeoutMs ?? 30_000) / 1000)),
-        graceSec: 5,
-        onLog: input.onLog ?? (async () => {}),
-        onSpawn: input.onSpawn
-          ? async (meta) => input.onSpawn?.({ pid: meta.pid, startedAt: meta.startedAt })
-          : undefined,
-      });
-    },
-  };
+// These cases only probe for the agent; no executable is registered, so nothing but the
+// registered discovery shell forms can run, and only inside this test's own root.
+function createLocalSandboxRunner(root: string) {
+  return createCursorSandboxRunner({
+    ownedRoots: [root],
+    executables: [],
+    backendOptions: { label: "cursor-remote-command" },
+  });
 }
 
 async function writeFakeAgent(commandPath: string): Promise<void> {
@@ -44,6 +26,22 @@ printf '%s\\n' ok
 }
 
 describe("prepareCursorSandboxCommand", () => {
+  it("refuses sandbox calls its test did not register before any process starts", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cursor-remote-command-bypass-"));
+    try {
+      const { calls, sentinelPath } = createInertBypassProbes(root);
+      const runner = createLocalSandboxRunner(root);
+      const spawned = vi.fn();
+      for (const { name, call } of calls) {
+        await expect(runner.execute({ ...call, onSpawn: spawned }), name).rejects.toThrow(/blocked before execution/);
+      }
+      expect(spawned).not.toHaveBeenCalled();
+      await expect(fs.stat(sentinelPath)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("prefers the Cursor installer bin directory when the default agent entrypoint is installed there", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cursor-remote-command-cursor-bin-"));
     const systemHomeDir = path.join(root, "system-home");
@@ -61,7 +59,7 @@ describe("prepareCursorSandboxCommand", () => {
           transport: "sandbox",
           shellCommand: "bash",
           remoteCwd: remoteWorkspace,
-          runner: createLocalSandboxRunner(),
+          runner: createLocalSandboxRunner(root),
           timeoutMs: 30_000,
         },
         command: "agent",
@@ -107,7 +105,7 @@ describe("prepareCursorSandboxCommand", () => {
           transport: "sandbox",
           shellCommand: "bash",
           remoteCwd: remoteWorkspace,
-          runner: createLocalSandboxRunner(),
+          runner: createLocalSandboxRunner(root),
           timeoutMs: 30_000,
         },
         command: "agent",
