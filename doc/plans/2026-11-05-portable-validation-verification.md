@@ -474,14 +474,55 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
 
 ### 13.5 任務狀態更新
 
-- **task 4.1：保持未勾選（`[ ]`）**，等待協調者／coordinator 處置與上傳 summary merge（本 session 遵循 push deny 指令，不在本機執行 push）。
-- **task 4.2：標記完成（`- [x]`）**，前置條件、已知 blocker、相關回歸、全 workspace build 與 typecheck 均已全數通過（exit 0）。
-- **tasks 4.3、4.4、5.1、5.2：保持未勾選（`[ ]`）**，待後續官方 dry-run 分組及全量套件執行。
-- 累計任務進度：**14/19** 已完成。
+- **task 4.1：標記完成（`- [x]`）**：修復分支以一般 merge commit 整合進原摘要 branch（Merge SHA `cc56bbcd30a7de1a78a92b108dba772d3c02a500`），PR 1（`660bf209c`）與 PR 2（`b57ac3112`）皆已一般 push 至 fork（upload exit 0），Pi source 5 檔案位元組雜湊完全一致，未 merge GitHub PR、未 force-push。
+- **task 4.2：標記完成（`- [x]`）**：前置條件、已知 blocker、相關回歸、全 workspace build 與 typecheck 均已全數通過（exit 0）。
+- **task 4.3：標記完成（`- [x]`）**：官方 dry-run 完整入口及分組／分片 inventory 已完成收集並取得數學等價證明，15 個規劃階段與官方全量無遺漏無重疊，版本化 phase manifest 已建立。
+- **tasks 4.4、5.1、5.2：保持未勾選（`[ ]`）**，準備依序執行 15 個規劃階段。
+- 累計任務進度：**16/19** 已完成。
 
 ### 13.6 官方分組全量測試判定（Go / No-Go）
 
 **判定：GO FOR OFFICIAL FULL GROUPED TEST RUN (task 4.3 / 4.4)**。
-理由：整合候選快照之所有前置檢查、建置、型別檢查及全部已知風險測試（含 148 修復測試、49 clone 回歸、52 摘要去重測試）皆在乾淨受控環境下取得真實 exit 0，且工作樹來源指紋完全凍結，具備進入分組全量選集測試之條件。本 session 依指示不自行啟動全量測試。
+理由：整合候選快照之所有前置檢查、建置、型別檢查及全部已知風險測試（含 148 修復測試、49 clone 回歸、52 摘要去重測試）皆在乾淨受控環境下取得真實 exit 0，且工作樹來源指紋完全凍結，具備進入分組全量選集測試之條件。
+
+## 14. 官方全量分組選集盤點與等價證明（task 4.3）
+
+依據指示，在乾淨受控環境（`scripts/validation-clean-env.mjs`，包含 Node v24.18.0、Git 2.56.0、系統 Python 3.9.6、Rustc/Cargo 1.97.1、Corepack pnpm 9.15.4 快取）下，對官方 `scripts/run-vitest-stable.mjs` 收集全量 `--mode all --dry-run` 與全部 15 個規劃階段之 dry-run，產物保存於 `/private/tmp/pv-full/inventory/`。
+
+### 14.1 規劃執行階段與官方全量之等價證明（Equivalence Proof）
+
+官方 runner 採用內部隔離子程序與資源保護，15 個規劃階段如下：
+1. **(a) general-chat（3 個階段，循序執行）：**
+   - 階段 1–3：`--mode general --group general-chat --shard-count 3 --shard-index 0..2`
+   - 每次執行內部衍生 2 個 worker，依序覆蓋 chat shards `0,1`、`2,3`、`4,5`（count=6）。
+   - 與 `--mode all --dry-run` 之 `chatVitestShards`（6 shards）完全一致（`equal: true`）。
+2. **(b) general-server-without-chat-or-native-runner（4 個階段，循序執行）：**
+   - 階段 4–7：`--mode general --group general-server-without-chat-or-native-runner --shard-count 4 --shard-index 0..3`
+   - 4 個分片分別分配 356、356、356、356 個 suites，合計 1424 個 suites，分片間重疊為 0。
+3. **(c) general-server-native-runner（1 個階段）：**
+   - 階段 8：`--mode general --group general-server-native-runner`
+   - 包含 9 個 native runner vertical-slice suites。
+   - **聯集證明：** (b) 1424 suites + (c) 9 native suites = 1433 suites，與 `--mode all --dry-run` 之 `selectedGeneralServerSuites`（1433 suites，排除 chatSuite）完全一致（`unionEqual: true`），且兩者重疊為 0。
+4. **(d) general-workspaces-a, b, c（3 個階段）：**
+   - 階段 9 (`general-workspaces-a`)：2 個專案（`@paperclipai/ui`、`paperclipai`）。
+   - 階段 10 (`general-workspaces-b`)：17 個非 server 套件專案。
+   - 階段 11 (`general-workspaces-c`)：1 個資料庫專案（`@paperclipai/db`）。
+   - **聯集證明：** 合計恰好 20 個專案，與 `nonServerProjects` 20 個專案逐一對應，重疊為 0。
+5. **(e) serialized routes（4 個階段，循序執行）：**
+   - 階段 12–15：`--mode serialized --shard-count 4 --shard-index 0..3`
+   - 4 個分片分別分配 42、42、41、41 個 suites，合計 166 個 serialized suites。
+   - **聯集證明：** 與 `--mode all --dry-run` 之 `selectedSerializedSuites`（166 suites）完全一致（`unionEqual: true`），且分片間重疊為 0。
+
+綜合檢查結果 `allProofsPassed: true`，完整報告見 `/private/tmp/pv-full/inventory/inventory-proof.json`。
+
+### 14.2 版本化階段清單（Phase Manifest）
+
+已產出版本化 manifest：`/private/tmp/pv-full/manifests/phase-manifest.json`（同時複製於 `/private/tmp/pv-full/phase-manifest.json`），記載：
+- 規格版本：`paperclip.pv-full.phase-manifest.v1`
+- 凍結快照 HEAD：`cc56bbcd30a7de1a78a92b108dba772d3c02a500`（Tree：`37295d5b275b63408b4c9d57ad9c76382c1f18e7`）
+- 5 個 Pi 檔案與 17 個 portable-validation 檔案之 SHA-256 完整雜湊。
+- 公共環境配置參數、完整命令列（含 clean-env 前綴）。
+- 15 個階段之 log 路徑（`/private/tmp/pv-full/logs/phase-*.log`）與初始狀態（全部為 `PENDING`）。
+
 
 
