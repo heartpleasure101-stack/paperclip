@@ -1021,3 +1021,62 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
    - Phase 07：設為 `NOT_RUN`，保留 Attempt 1 完整歷史與失敗記錄，命令參數重新導向新工作樹，就緒執行 Attempt 2。
    - Phases 08–15：設為 `NOT_RUN`，命令參數重新導向新工作樹。
    - Ops quiet driver `run-phases.mjs`（SHA-256: `3e3e842cec91823a8ff9081ba6dbd1974162903ff4ea593b3038808ab10b570f`）就緒執行後續流程。
+
+
+### 19.7 全量驗證 Phase 07–15 實測結果與 Phase 10 Fail-Stop 記錄
+
+依據正規流程，在新不可變快照（HEAD `3f1eb1b7b364893141818d25569d60206ea36ccb`，Tree `4cf612e25dfcaca94cbfd7539922b9fe4a77cd1f`）於 `/private/tmp/pv-load-fixture-fix` 透過 `run-phases.mjs`（SHA-256: `3e3e842cec91823a8ff9081ba6dbd1974162903ff4ea593b3038808ab10b570f`）執行全量驗證：
+
+| Phase | 組別名稱 | 涵蓋選集 | 執行 Commit | 退出碼 | 測試檔案結果 | 測試案例結果 | 耗時 | 狀態 |
+|---|---|---|---|---|---|---|---|---|
+| **Phase 01** | `general-chat-shard-0` | Chat shard 0, 1 | `cc56bbcd3` | 0 | 2 passed / 2 total | 574 passed, 3102 skipped | 273.3s | **PASSED** (延續證據) |
+| **Phase 02** | `general-chat-shard-1` | Chat shard 2, 3 | `cc56bbcd3` | 0 | 2 passed / 2 total | 653 passed, 3023 skipped | 275.7s | **PASSED** (延續證據) |
+| **Phase 03** | `general-chat-shard-2` | Chat shard 4, 5 | `cc56bbcd3` | 0 | 2 passed / 2 total | 611 passed, 3065 skipped | 232.8s | **PASSED** (延續證據) |
+| **Phase 04** | `general-server-shard-0` | Server shard 0 | `cc56bbcd3` | 0 | 351 passed, 5 skipped (356) | 7256 passed, 15 skipped | 1242.1s | **PASSED** (延續證據) |
+| **Phase 05** | `general-server-shard-1` | Server shard 1 | `cc56bbcd3` | 0 | 348 passed, 8 skipped (356) | 6440 passed, 78 skipped | 1378.0s | **PASSED** (延續證據) |
+| **Phase 06** | `general-server-shard-2` | Server shard 2 | `cc56bbcd3` | 0 | 350 passed, 6 skipped (356) | 6288 passed, 135 skipped | 837.9s | **PASSED** (Attempt 2 延續) |
+| **Phase 07** | `general-server-shard-3` | Server shard 3 (含修復檔) | `3f1eb1b7b` | **0** | **350 passed, 6 skipped (356)** | **9946 passed, 49 skipped (9995)** | **929.7s** | **PASSED** (Attempt 2 實跑通過) |
+| **Phase 08** | `general-server-native-runner` | 9 native runner suites | `3f1eb1b7b` | **0** | **7 passed, 2 skipped (9)** | **163 passed, 23 skipped (186)** | **318.8s** | **PASSED** (Attempt 1 實跑通過) |
+| **Phase 09** | `general-workspaces-a` | 2 projects (`@paperclipai/ui`, `paperclipai`) | `3f1eb1b7b` | **0** | **929 passed, 0 skipped (929)** | **11113 passed, 0 skipped (11113)** | **283.1s** | **PASSED** (Attempt 1 實跑通過) |
+| **Phase 10** | `general-workspaces-b` | 17 workspace packages | `3f1eb1b7b` | **1** | **188 passed, 1 failed (189)** | **3157 passed, 1 failed, 12 skipped (3170)** | **89.6s** | **FAILED** (Fail-Stop 中止) |
+| **Phase 11** | `general-workspaces-c` | 1 project (`@paperclipai/db`) | `3f1eb1b7b` | - | 未執行 | 未執行 | - | **NOT_RUN** |
+| **Phase 12** | `serialized-shard-0` | Serialized shard 0 | `3f1eb1b7b` | - | 未執行 | 未執行 | - | **NOT_RUN** |
+| **Phase 13** | `serialized-shard-1` | Serialized shard 1 | `3f1eb1b7b` | - | 未執行 | 未執行 | - | **NOT_RUN** |
+| **Phase 14** | `serialized-shard-2` | Serialized shard 2 | `3f1eb1b7b` | - | 未執行 | 未執行 | - | **NOT_RUN** |
+| **Phase 15** | `serialized-shard-3` | Serialized shard 3 | `3f1eb1b7b` | - | 未執行 | 未執行 | - | **NOT_RUN** |
+
+---
+
+### 19.8 Phase 10 失敗原因精確診斷
+
+1. **失敗測試定位：**
+   - 套件：`packages/adapter-utils`
+   - 檔案：`packages/adapter-utils/src/github-launcher-environment.test.ts:421:35`
+   - 案例：`managed GitHub launcher environment > preserves local host credential helpers and validates worktree metadata`
+2. **斷言錯誤（Assertion Error）：**
+   ```
+   AssertionError: expected '/var/folders/0w/j69x0g910m182rtbp39_1.../paperclip-clean-env-rEvovT/git/config' to be undefined
+   - Expected: undefined
+   + Received: "/var/folders/0w/j69x0g910m182rtbp39_14dm0000gp/T/paperclip-clean-env-rEvovT/git/config"
+   ```
+3. **因果分析（Root Cause）：**
+   - `scripts/validation-clean-env.mjs` 在建立隔離子行程環境時，合成並導出 `GIT_CONFIG_GLOBAL: gitConfig`（指向擁有的合成 git identity 設定檔）。
+   - 在 `packages/adapter-utils/src/github-launcher-environment.ts` 中，`prepareGitHubExecutionEnvironment` 函式預設會繼承或檢查外層環境之 `GIT_CONFIG_GLOBAL`，其測試案例明確斷言 `expect(env.GIT_CONFIG_GLOBAL).toBeUndefined()`。
+   - 由於在 clean-env 下執行，該測試繼承了 `validation-clean-env.mjs` 所注入之合成設定檔路徑，因而觸發斷言失敗。
+4. **規範遵守（Fail-Stop Invariant）：**
+   - 依使用者最高指導原則：任何組別失敗時，讓該組完成後即刻 **STOP**，後續組別維持 **NOT_RUN**，嚴格保留失敗現場為 **NO-GO**，禁止擅自修改程式碼（no autocodefix）或重試到綠燈（no retry to green）。
+
+---
+
+### 19.9 最終任務進度與 5.1 GO / NO-GO 判定
+
+- **Task 2.10：** `[x]` **已完成**（macOS somaxconn TCP 滿溢因果診斷經獨立審查通過）。
+- **Task 2.11：** `[x]` **已完成**（Phase 07 全量 356 檔以 9946 passed / 49 skipped / 0 failed 完整通過，原 500/498/2/500/25/p99<250ms/15s 不變量完全保持）。
+- **Task 4.1：** `[x]` **已完成**（Merge commit `3f1eb1b7b` 整合完成，源碼逐 byte 等價性核驗通過）。
+- **Task 4.2：** `[x]` **已完成**（新不可變快照 Preflight 10/10、Node 19、快取自測、負載自測、tsc、邊界檢查全數 exit 0 通過）。
+- **Task 4.3：** `[x]` **已完成**（官方 dry-run inventory 完整導出，20 projects / 1433 general / 166 serialized 無遺漏無重疊）。
+- **Task 4.4：** `[ ]` **未完成 (FAILED at Phase 10)**（因 Phase 10 發生 1 個斷言失敗，後續 Phase 11–15 未執行）。
+- **Task 5.1 / 5.2：** `[ ]` **未完成／待獨立審查交付 (PENDING)**。
+- **最終判定：**
+  - **Task 5.1 最終驗收門檻：** **NO-GO**（Phase 10 失敗，尚未達成 15 組全數通過）。
+  - **禁止自我認證：** 嚴格不自封存、不移除 draft、不 merge GitHub PR。
