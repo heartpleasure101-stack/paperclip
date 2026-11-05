@@ -524,5 +524,106 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
 - 公共環境配置參數、完整命令列（含 clean-env 前綴）。
 - 15 個階段之 log 路徑（`/private/tmp/pv-full/logs/phase-*.log`）與初始狀態（全部為 `PENDING`）。
 
+## 15. 官方全量分組執行與結果（task 4.4，Fail-Stop 紀錄）
+
+依據 task 4.4 要求，在不可變凍結快照（HEAD `cc56bbcd30a7de1a78a92b108dba772d3c02a500`，Tree `37295d5b275b63408b4c9d57ad9c76382c1f18e7`）上，透過官方無修改的 `scripts/run-vitest-stable.mjs`，在乾淨隔離環境配方（Node v24.18.0，Git 2.56.0，Rust 1.97.1，Corepack pnpm 9.15.4 快取，`COREPACK_ENABLE_NETWORK="0"`，`CI="1"`）下循序執行已規劃之 15 個階段。
+
+### 15.1 執行階段彙整與狀態
+
+| Phase ID | 分組名稱 | Shard | 狀態 | 退出碼 | 耗時 | Files (P/F/S/T) | Tests (P/F/S/T) |
+|---|---|---|---|---|---|---|---|
+| `phase-01-general-chat-shard-0` | general-chat | 0/3 (內部 0-1/6) | **PASSED** | 0 | 273.3s | 2 / 0 / 0 / 2 | 574 / 0 / 3102 / 3676 |
+| `phase-02-general-chat-shard-1` | general-chat | 1/3 (內部 2-3/6) | **PASSED** | 0 | 275.7s | 2 / 0 / 0 / 2 | 653 / 0 / 3023 / 3676 |
+| `phase-03-general-chat-shard-2` | general-chat | 2/3 (內部 4-5/6) | **PASSED** | 0 | 232.8s | 2 / 0 / 0 / 2 | 611 / 0 / 3065 / 3676 |
+| `phase-04-general-server-shard-0` | general-server-without-chat-or-native-runner | 0/4 | **PASSED** | 0 | 1242.1s | 351 / 0 / 5 / 356 | 7256 / 0 / 15 / 7271 |
+| `phase-05-general-server-shard-1` | general-server-without-chat-or-native-runner | 1/4 | **PASSED** | 0 | 1378.0s | 348 / 0 / 8 / 356 | 6440 / 0 / 78 / 6518 |
+| `phase-06-general-server-shard-2` | general-server-without-chat-or-native-runner | 2/4 | **FAILED** | 1 | 1521.1s | 349 / 1 / 6 / 356 | 6287 / 1 / 135 / 6423 |
+| `phase-07-general-server-shard-3` | general-server-without-chat-or-native-runner | 3/4 | **NOT_RUN** | - | - | - | - |
+| `phase-08-general-server-native-runner` | general-server-native-runner | - | **NOT_RUN** | - | - | - | - |
+| `phase-09-general-workspaces-a` | general-workspaces-a | - | **NOT_RUN** | - | - | - | - |
+| `phase-10-general-workspaces-b` | general-workspaces-b | - | **NOT_RUN** | - | - | - | - |
+| `phase-11-general-workspaces-c` | general-workspaces-c | - | **NOT_RUN** | - | - | - | - |
+| `phase-12-serialized-shard-0` | serialized routes | 0/4 | **NOT_RUN** | - | - | - | - |
+| `phase-13-serialized-shard-1` | serialized routes | 1/4 | **NOT_RUN** | - | - | - | - |
+| `phase-14-serialized-shard-2` | serialized routes | 2/4 | **NOT_RUN** | - | - | - | - |
+| `phase-15-serialized-shard-3` | serialized routes | 3/4 | **NOT_RUN** | - | - | - | - |
+
+**Fail-Stop 行為：** 依據驗證指令原則「遇到任何階段失敗，必須讓該階段完整結束結算 exit code 後立即中止後續階段；將未執行階段標記為 NOT RUN，記錄原始失敗，禁止無限重試或偽裝為通過」，執行程序於 Phase 06 判定非零退出（exit 1）後立即安全停機，未繼續執行 Phase 07–15。
+
+### 15.2 Phase 06 失敗精確證據（Exact Evidence）
+
+- **失敗階段：** `phase-06-general-server-shard-2`
+- **分組及分片：** `general-server-without-chat-or-native-runner`，shard 2/4
+- **原始日誌位置：** `/private/tmp/pv-full/logs/phase-06-general-server-shard-2.log`（行號 760616–760647）
+- **失敗測試檔案：** `server/src/__tests__/vitest-chat-shards.test.ts`
+- **失敗測試案例：** `runs every active nested/parameterized fixture case exactly once through the real chat shard CLI`
+- **失敗代碼行：** `server/src/__tests__/vitest-chat-shards.test.ts:44:60`
+  ```typescript
+  42|       const result = run(index, 2);
+  43|       expect(result.error, result.stderr).toBeUndefined();
+  44|       expect(result.status, result.stdout + result.stderr).toBe(0);
+    |                                                            ^
+  45|       expect(result.stdout).toContain("exact filter coverage verified");
+  ```
+- **錯誤訊息與標準輸出：**
+  ```text
+  AssertionError: 
+  [test:run] chat integration test shard
+
+  [test:run] chat integration test shard
+  Network access disabled by the environment; can't reach npm repository https://registry.npmjs.org
+  Network access disabled by the environment; can't reach npm repository https://registry.npmjs.org
+  [test:run] Vitest collection failed: 1
+  : expected 1 to be +0 // Object.is equality
+
+  - Expected
+  + Received
+
+  - 0
+  + 1
+  ```
+
+### 15.3 根因分析（Root Cause Analysis）
+
+1. **環境特徵：**
+   - 驗證配方 `scripts/validation-clean-env.mjs` 透過環境變數嚴格禁止任何自動網路下載：
+     - `COREPACK_ENABLE_NETWORK: "0"`
+     - `COREPACK_ENABLE_AUTO_PIN: "0"`
+     - `COREPACK_HOME: "/private/tmp/pv-clean-tools/corepack"`
+   - Corepack 依此在無網路環境下運行。當受測目標目錄的 `package.json` 包含明確的 `"packageManager": "pnpm@9.15.4"` 時，Corepack 會直接讀取快取的 `/private/tmp/pv-clean-tools/corepack/v1/pnpm/9.15.4`，不發起任何外部網路請求。
+2. **測試 Fixture 缺陷：**
+   - 在 `server/src/__tests__/vitest-chat-shards.test.ts` 中，測試於暫存目錄動態建立微型測試夾具專案：
+     ```typescript
+     const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "pc-shards-")));
+     ...
+     writeFileSync(path.join(root, "package.json"), JSON.stringify({ private: true }));
+     ```
+   - 該暫存 `package.json` 僅寫入 `{ private: true }`，**缺少 `"packageManager": "pnpm@9.15.4"`**。
+   - 接著該測試執行 `scripts/run-vitest-stable.mjs`，並以 `cwd: root` 呼叫子程序 `spawnSync("pnpm", ["exec", "vitest", "list", ...])`。
+   - 由於 Corepack 在暫存目錄 `root` 找不到 `packageManager` 定義，且 `COREPACK_ENABLE_NETWORK="0"` 禁止其訪問外部 npm registry（`https://registry.npmjs.org`），Corepack 即拋出 UsageError：
+     `Network access disabled by the environment; can't reach npm repository https://registry.npmjs.org`。
+   - 導致子行程收集失敗（exit 1），引發斷言 `expect(result.status).toBe(0)` 失敗。
+3. **影響與防護原則：**
+   - 這是測試夾具（test fixture setup）在無網路/隔離驗證環境下的配置缺項，並非 server 正式功能邏輯退化。
+   - 但依據使用者指令「若代碼／測試／前置條件失敗，必須回報精確證據，不得自動修復、不得弱化斷言、不得略過測試」，此項失敗為真實存在的測試失敗，未被修改或隱瞞。
+
+### 15.4 階段 1–6 跳過案例說明（Skips Accounting）
+
+- **Phase 01–03 (general-chat)：**
+  - 每階段僅執行分配之 chat lines（例如 Phase 01 執行 574 tests，其餘 3102 tests 為 Vitest line-filtering 機制所標記之 skipped tests），屬於官方 chat shard 之既有且預期行為。
+- **Phase 04 (general-server shard 0)：** 15 skipped tests（5 skipped files）。為平台依賴或未配置之本機服務跳過。
+- **Phase 05 (general-server shard 1)：** 78 skipped tests（8 skipped files）。
+- **Phase 06 (general-server shard 2)：** 135 skipped tests（6 skipped files，包含 native warm transition、native run log export、paperclip runner real server 等需要 native runner 支援或特定旗標的測試）。
+
+### 15.5 驗收判定與任務狀態
+
+- **task 4.1：** 完成（`[x]`）。
+- **task 4.2：** 完成（`[x]`）。
+- **task 4.3：** 完成（`[x]`）。
+- **task 4.4：保持未完成（`- [ ]`）**：因 Phase 06 發生非零退出（exit 1），依原則禁止標記完成，Phases 07–15 標記為 `NOT_RUN`。
+- **tasks 5.1、5.2：保持未完成（`[ ]`）**。
+- **獨立驗收門檻（Gate 5）判定：NO-GO**。
+  - 理由：全量測試組未達全數 exit 0，`server/src/__tests__/vitest-chat-shards.test.ts` 在受控無網路環境下暴露 Corepack 離線夾具缺陷。須由後續專屬變更依規範補正該測試 fixture 後方可重啟 Gate 4.4 / 5。
+
 
 
