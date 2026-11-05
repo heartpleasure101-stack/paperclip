@@ -113,12 +113,21 @@ Logs are saved in `/private/tmp/pv-load-fixture-evidence/`:
 
 ## 5. Reuse Impact & Source-Equivalence Proof
 
-### 5.1 Codebase & Dependency Equivalence against `cc56bbcd3`
+### 5.1 Codebase & Dependency Equivalence against `cc56bbcd3` and Intended Target
 
-- **Production Source:** `git diff cc56bbcd3 -- server/src/routes/ server/src/services/ server/src/middleware/ packages/` is **EMPTY** (100% byte-identical).
-- **Configuration & Dependencies:** `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, and `vitest.config.ts` are 100% byte-identical.
-- **Test File Scope:** ONLY `server/src/__tests__/file-resources-git-scan-load.test.ts` has modifications (209 additions, 11 deletions).
-- **Reverse Dependencies:** Grep scan confirms **ZERO** files in the repository import or read `file-resources-git-scan-load.test.ts`.
+- **Baseline Discrepancy Clarification:** Baseline commit `7e8c2854a` was branched from `b57ac3112` and itself does **NOT** contain the 5 Pi feature files present in `cc56bbcd3` and `3c34f94bf`:
+  1. `packages/adapter-utils/src/continuation-summary-dedup.test.ts`
+  2. `packages/adapter-utils/src/server-utils.ts`
+  3. `packages/adapters/opencode-local/src/server/execute.test.ts`
+  4. `packages/adapters/pi-local/src/server/execute.summary-dedup.test.ts`
+  5. `packages/adapters/pi-local/src/server/execute.ts`
+- **Intended Combined Target & Conditions:** The intended combined target is ORIGINAL `3c34f94bf` (which preserves all 5 Pi feature files identical to `cc56bbcd3`) merged with the test-only patch from `7e8c2854a`.
+- **Target Equivalence Conditions:**
+  - Upon merging into `3c34f94bf`, production code in `server/src/routes/`, `server/src/services/`, `server/src/middleware/`, `packages/`, `cli/`, and `ui/` must remain 100% byte-identical to `cc56bbcd3`.
+  - All 5 Pi feature files must match their SHA256 hashes in `cc56bbcd3`.
+  - Configuration & Dependencies (`package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `vitest.config.ts`) remain 100% byte-identical to `cc56bbcd3`.
+  - The ONLY executable test file with modifications is `server/src/__tests__/file-resources-git-scan-load.test.ts` (SHA256: `93234ee1cd3efd738cc11198cc48a3b027c3505f252cbf8fb490317004cab24c`).
+  - Reverse dependency scan confirms **ZERO** files in the repository import or read `file-resources-git-scan-load.test.ts`.
 
 ### 5.2 Cohort-by-Cohort Reuse Impact Matrix
 
@@ -130,11 +139,11 @@ Logs are saved in `/private/tmp/pv-load-fixture-evidence/`:
 | Phase 04 | `general-server-shard-0` | 356 server test suites | `cc56bbcd3` | Yes | Does not contain `file-resources-git-scan-load.test.ts`; SUT and helpers unchanged. |
 | Phase 05 | `general-server-shard-1` | 356 server test suites | `cc56bbcd3` | Yes | Does not contain `file-resources-git-scan-load.test.ts`; SUT and helpers unchanged. |
 | Phase 06 | `general-server-shard-2` | 356 server test suites | `cc56bbcd3` | Yes | Does not contain `file-resources-git-scan-load.test.ts`; SUT and helpers unchanged. |
-| Phase 07 | `general-server-shard-3` | 356 server test suites | `cc56bbcd3` | **NO (Contains Target)** | **MUST BE RE-RUN IN FULL** on new snapshot after independent review. |
-| Phase 08 | `general-server-native-runner` | 13 runner suites | Unrun | N/A | Still unrun. |
-| Phase 09 | `general-workspaces-a` | UI + CLI suites | Unrun | N/A | Still unrun. |
-| Phase 10 | `general-workspaces-b` | 17 workspace suites | Unrun | N/A | Still unrun. |
-| Phase 11 | `general-workspaces-c` | `@paperclipai/db` suites | Unrun | N/A | Still unrun. |
+| Phase 07 | `general-server-shard-3` | 356 server test suites | `cc56bbcd3` | **NO (Contains Target)** | **MUST BE RE-RUN IN FULL** on new snapshot after independent review. Expected if stable: 9,946 passed + 49 skipped = 9,995 total tests (prior attempt 1 had 9,943 pass, 1 fail, 49 skip; fix + 2 negative controls = 9,946). |
+| Phase 08 | `general-server-native-runner` | 9 native runner suites | Unrun | N/A | Still unrun. Exactly 9 test files in native runner group. |
+| Phase 09 | `general-workspaces-a` | 2 projects (`@paperclipai/ui`, `paperclipai`) | Unrun | N/A | Still unrun. Part of 20 non-server project inventory. |
+| Phase 10 | `general-workspaces-b` | 17 workspace packages | Unrun | N/A | Still unrun. Part of 20 non-server project inventory. |
+| Phase 11 | `general-workspaces-c` | 1 project (`@paperclipai/db`) | Unrun | N/A | Still unrun. Part of 20 non-server project inventory (2 + 17 + 1 = 20 total). |
 | Phase 12-15 | `serialized` shards 0-3 | Serialized suites | Unrun | N/A | Still unrun. |
 
 ---
