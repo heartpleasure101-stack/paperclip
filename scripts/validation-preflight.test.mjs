@@ -16,22 +16,29 @@ function fixture(t, { python = "3.9.6", gitRejectsNot = false } = {}) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const bin = path.join(root, "tools");
   fs.mkdirSync(bin);
+  // Fake tools record the probe environment they really received (outside `root`, which one test snapshots).
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), "preflight-log-"));
+  t.after(() => fs.rmSync(logDir, { recursive: true, force: true }));
+  const log = path.join(logDir, "probe.log");
+  const record = (name) => `echo "${name} $1 optional_locks=\${GIT_OPTIONAL_LOCKS-unset} corepack_network=\${COREPACK_ENABLE_NETWORK-unset} rustup=\${RUSTUP_AUTO_INSTALL-unset}" >> "${log}"`;
   const write = (name, body) => { fs.writeFileSync(path.join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 }); return path.join(bin, name); };
   const paths = {
-    pnpm: write("pnpm", 'echo "9.15.4"'),
+    pnpm: write("pnpm", `${record("pnpm")}\necho "9.15.4"`),
     python: write("python3", `echo "Python ${python}"`),
     git: write("git", `while [ "$1" = "-c" ]; do shift 2; done
+${record("git")}
 case "$1" in
   --version) echo "git version 2.99.0";;
   init) mkdir -p .git;;
   rev-list) ${gitRejectsNot ? 'echo "fatal: options not supported in --stdin mode" >&2; exit 128' : "while read -r _; do :; done"};;
   rev-parse) echo 0123456789abcdef0123456789abcdef01234567;;
 esac`),
-    rustc: write("rustc", 'echo "rustc 1.97.1 (fake)"'),
-    cargo: write("cargo", '[ "$1" = fmt ] && { echo "rustfmt 1.0 (fake)"; exit 0; }; echo "cargo 1.97.1 (fake)"'),
+    rustc: write("rustc", `${record("rustc")}\necho "rustc 1.97.1 (fake)"`),
+    cargo: write("cargo", `${record("cargo")}\n[ "$1" = fmt ] && { echo "rustfmt 1.0 (fake)"; exit 0; }; echo "cargo 1.97.1 (fake)"`),
   };
   const flags = Object.entries(paths).flatMap(([tool, file]) => [`--${tool}`, file]);
-  return { root, bin, paths, flags };
+  const probeLog = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : []);
+  return { root, bin, paths, flags, probeLog };
 }
 
 const cli = (args, env = {}) => {
@@ -117,4 +124,50 @@ test("the snapshot identity is reported and an unknown stage is a usage error", 
   const bad = cli(["--stage", "everything"]);
   assert.equal(bad.status, 2);
   assert.match(bad.stderr, /Unknown stage/);
+});
+
+test("every Git probe disables optional locks, even when the caller enabled them", (t) => {
+  const f = fixture(t);
+  const result = cli(["--stage", "blockers", "--json", ...f.flags], { GIT_OPTIONAL_LOCKS: "1" });
+  assert.equal(result.status, 0, result.stdout);
+  const gitCalls = f.probeLog().filter((line) => line.startsWith("git "));
+  // version, the private-repository capability probe (init, commit, rev-list) and the snapshot reads
+  assert.ok(gitCalls.length >= 5, gitCalls.join("\n"));
+  for (const line of gitCalls) assert.match(line, /optional_locks=0\b/, line);
+});
+
+test("pnpm and Rust probes cannot use the network or install through shims", (t) => {
+  const f = fixture(t);
+  const result = cli(["--stage", "full", "--json", ...f.flags], { COREPACK_ENABLE_NETWORK: "1", RUSTUP_AUTO_INSTALL: "1" });
+  assert.equal(result.status, 0, result.stdout);
+  const tools = f.probeLog().filter((line) => /^(pnpm|rustc|cargo) /.test(line));
+  assert.ok(tools.some((line) => line.startsWith("pnpm ")) && tools.some((line) => line.startsWith("cargo ")), tools.join("\n"));
+  for (const line of tools) assert.match(line, /corepack_network=0 rustup=0$/, line);
+});
+
+test("a probe directory that cannot be created is a structured failure, not a crash", (t) => {
+  const f = fixture(t);
+  // A regular file where the temp directory should be: mkdtemp fails with ENOTDIR.
+  const notADirectory = path.join(f.root, "not-a-directory");
+  fs.writeFileSync(notADirectory, "x");
+  const result = cli(["--stage", "blockers", "--json", ...f.flags], { TMPDIR: notADirectory });
+  assert.equal(result.status, 1, result.stdout);
+  assert.equal(result.stderr, "");
+  assert.equal(result.json.ok, false);
+  assert.deepEqual(result.json.failed, ["git-rev-list-stdin-not"]);
+  const check = result.json.checks.find((entry) => entry.id === "git-rev-list-stdin-not");
+  assert.match(check.detail, /cannot create a private probe directory/);
+  assert.match(check.detail, /ENOTDIR|ENOENT/);
+  // The failure is reported for the stage that needs Git, and the other checks still ran.
+  assert.equal(result.json.checks.find((entry) => entry.id === "python").status, "pass");
+  assert.equal(fs.readdirSync(f.root).sort().join(), "not-a-directory,tools");
+});
+
+test("the same fault through the API leaves no probe directory behind", (t) => {
+  const f = fixture(t);
+  const missing = path.join(f.root, "missing-parent");
+  const result = runPreflight({ stage: "blockers", tmpdir: missing, paths: f.paths, env: { PATH: SYSTEM_PATH } });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.failed, ["git-rev-list-stdin-not"]);
+  assert.equal(fs.existsSync(missing), false);
 });

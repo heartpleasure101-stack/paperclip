@@ -20,6 +20,16 @@ export const STAGES = {
 const TOOL_FLAGS = { git: "--git", python: "--python", pnpm: "--pnpm", cargo: "--cargo", rustc: "--rustc" };
 const TOOL_COMMANDS = { git: "git", python: "python3", pnpm: "pnpm", cargo: "cargo", rustc: "rustc" };
 
+// Applied to every child process so a probe cannot write to the repository or download a tool:
+// a rustup shim must never fetch a toolchain, a Corepack pnpm shim must never fetch a package
+// manager, and Git must not refresh the index or take optional locks while reading status.
+export const READ_ONLY_PROBE_ENV = Object.freeze({
+  RUSTUP_AUTO_INSTALL: "0",
+  COREPACK_ENABLE_NETWORK: "0",
+  COREPACK_ENABLE_AUTO_PIN: "0",
+  GIT_OPTIONAL_LOCKS: "0",
+});
+
 const parseVersion = (text) => /(\d+)\.(\d+)(?:\.(\d+))?/.exec(text)?.slice(1).map((part) => Number(part ?? 0)) ?? null;
 const atLeast = (version, minimum) => {
   for (let index = 0; index < minimum.length; index++) {
@@ -96,7 +106,7 @@ export function runPreflight(options = {}) {
   const probe = (tool, args, cwd = repoRoot) => {
     const found = locate(tool, options, env);
     if (!found) return { found: null };
-    const toolEnv = { ...env, RUSTUP_AUTO_INSTALL: "0" }; // a rustup shim must never download a toolchain
+    const toolEnv = { ...env, ...READ_ONLY_PROBE_ENV };
     const result = run(found.path, args, { cwd, env: toolEnv });
     located[tool] = found;
     return { found, result, version: result.status === 0 ? parseVersion(result.stdout || result.stderr) : null,
@@ -118,9 +128,14 @@ export function runPreflight(options = {}) {
     if (git.version) {
       // Capability probe in a private repository: stdin revision lists that contain `--not`
       // are rejected by older Git (Apple Git 2.39.3: "options not supported in --stdin mode").
-      const scratch = fs.mkdtempSync(path.join(options.tmpdir ?? os.tmpdir(), "paperclip-preflight-git-"));
-      try {
-        const gitEnv = { PATH: env.PATH ?? "", HOME: scratch, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: "0" };
+      const scratchParent = options.tmpdir ?? os.tmpdir();
+      let scratch = null;
+      try { scratch = fs.mkdtempSync(path.join(scratchParent, "paperclip-preflight-git-")); } catch (error) {
+        // A read-only or missing TMPDIR is a failed check with a machine-readable reason, not a crash.
+        report("git-rev-list-stdin-not", "git", false, `cannot create a private probe directory under ${scratchParent}: ${error.code ?? error.message}; set TMPDIR to a writable directory`, { path: git.found.path });
+      }
+      if (scratch) try {
+        const gitEnv = { PATH: env.PATH ?? "", HOME: scratch, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: "0", ...READ_ONLY_PROBE_ENV };
         const g = (args, input) => run(git.found.path, ["-c", "user.name=preflight", "-c", "user.email=preflight@invalid", "-c", "commit.gpgsign=false", ...args], { cwd: scratch, env: gitEnv, input });
         const ready = g(["init", "-q"]).status === 0 && g(["commit", "-q", "--allow-empty", "-m", "preflight"]).status === 0;
         const listed = ready ? g(["rev-list", "--max-count=1", "--stdin"], "HEAD\n^HEAD\n--not\n--remotes\n") : { status: 1, stderr: "probe repository could not be created" };
@@ -147,7 +162,7 @@ export function runPreflight(options = {}) {
       { path: found.found.path, source: found.found.source, version: found.text, ...hint(found.found) });
   }
   if (cargo.found && cargo.version) {
-    const fmt = run(cargo.found.path, ["fmt", "--version"], { cwd: runnerDir, env: { ...env, RUSTUP_AUTO_INSTALL: "0" } });
+    const fmt = run(cargo.found.path, ["fmt", "--version"], { cwd: runnerDir, env: { ...env, ...READ_ONLY_PROBE_ENV } });
     report("rustfmt", "rust", fmt.status === 0, fmt.status === 0 ? fmt.stdout.trim() : "cargo fmt is unavailable (rust-toolchain.toml requires the rustfmt component)", { path: cargo.found.path });
   }
 
@@ -166,7 +181,7 @@ export function runPreflight(options = {}) {
 
   let snapshot = { available: false };
   if (git.found && git.version) {
-    const g = (args) => run(git.found.path, args, { cwd: repoRoot, env });
+    const g = (args) => run(git.found.path, args, { cwd: repoRoot, env: { ...env, ...READ_ONLY_PROBE_ENV } });
     const head = g(["rev-parse", "HEAD"]);
     if (head.status === 0) {
       const status = g(["status", "--porcelain"]);
