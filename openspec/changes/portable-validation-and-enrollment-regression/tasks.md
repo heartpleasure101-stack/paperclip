@@ -1,0 +1,37 @@
+# Tasks
+
+## 1. 獨立修復分支與證據基線
+
+- [ ] 1.1 從 master 建立獨立修復 branch／本機工作樹，攜帶本 agent 已撰寫的 change 與必要 OpenSpec 設定；提交規格、push 並於使用者 fork 建立 base=master 的 draft PR，依 repo PR template 填寫，記錄 URL 與 base SHA。
+- [ ] 1.2 讀取實作範圍 instructions，於本機隔離目錄重現 Cursor、Muse、enrollment 已知失敗並記錄工具、退出碼、版本／tree、原斷言及使用的測試選集；不啟動全量流程。
+
+## 2. 自含測試替身與前置檢查
+
+- [ ] 2.1 修正 Cursor fake sandbox runtime 配置；以刻意排除主機 Node 路徑的環境驗證原 5 案例及缺失命令可偵測，保留 command、PATH 與提示斷言；確認正式 adapter/server-utils PATH 無變更，無網路安裝。
+- [ ] 2.2 修正 Muse fixture 的模擬 HTTPError 可關閉資源；用 Python 3.9 與可用較新版本執行合約案例，檢查已發布 assets／pins 位元組未變，所有原斷言仍成立。
+- [ ] 2.3 增加輕量唯讀 preflight 與其測試，覆蓋條件通過、缺項非零退出、隔離工具路徑及自有暫存清理；記錄 Node／Git 能力／Python／當次需要的 Rust，不自動安裝工具或接觸正式資料。
+- [ ] 2.4 更新開發文件中隔離驗證、工具覆寫、先跑 blocker 的命令及失敗處理；在乾淨暫存 HOME 執行文件命令證明不需未版本化 monkeypatch 或全域 symlink。
+
+## 3. GitHub enrollment 因果修復
+
+- [ ] 3.1 在隔離快照取得 ack=0 的因果證據（工作者 poll 結果／errors、HTTP 階段、delivery 狀態、虛擬時鐘／真實 I/O）；有界證明是哪一階段未完成，記錄 real-timer 或受控延遲對照，禁止只延長等待。
+- [ ] 3.2 依設計決策修復正確擁有者：test-only 時鐘協調／fixture，或經真實依賴證明有缺陷的最小 event/enrollment 服務；以失敗前後與受控故障證明修正生效，保留所有簽名、DB、身分替換、ack 及 25 分鐘安靜期斷言。
+- [ ] 3.3 執行 enrollment 原案例多次及相關 connection-work／connector 安全回歸，附明確命令與輸出；將根因、採取／未採取方案、原斷言保留與限制記入有日期的 doc/plans 驗證文件。
+
+## 4. 整合與完整覆蓋驗證
+
+- [ ] 4.1 將修復分支以一般 merge commit 整合進原摘要 branch，記錄兩個 PR、merge SHA 與修復／Pi source tree；只做本機 merge 與普通 push，不 merge GitHub PR、不 force-push。
+- [ ] 4.2 在不可變整合快照上通過 preflight、全部已知 blocker 及摘要去重相關回歸，再執行 typecheck/build；每項附退出碼，未通過則不跑昂貴全量。
+- [ ] 4.3 用官方 dry-run 取得完整入口及分組／分片 inventory，證明 chat、general excluding chat/native、native-runner、workspaces-a/b/c、serialized 無遺漏；依本機資源限制並行並保存實際選集。
+- [ ] 4.4 執行全部官方等價測試組，每組／shard 皆保留命令、退出碼、tests／skips、版本及 log；確認每個必要組 exit=0、無測試替身修補檔滲入或程式碼變動，保留先前失敗。任何未跑／被停止／失敗不得標記完成。
+
+## 5. 獨立驗證與可審查交付
+
+- [ ] 5.1 全新 Pi Claude Sonnet 5.5 session 依 verify-change 檢查兩個新 capability、所有 scenario、原斷言、正式 source diff、完整選集及每組退出結果；附獨立報告，修正 findings 後重測／複審，無未解重大問題。
+- [ ] 5.2 將完整證據與回滾指示提交、push；更新兩個 change 的 tasks／最新驗證文件與兩個 PR 描述，執行 strict validate 與 apply progress 確認沒有未完成必要任務或假綠燈。
+
+## Workflow follow-up
+
+- 全部 tracked tasks 與原摘要驗收任務有證據完成後，依 OpenSpec archive 流程同步兩個 change 的 main specs，strict validate 封存結果並修正失效連結。
+- 封存／交付文件另行 commit、push，確認原摘要 Pi source 未被本 change 改寫；只有驗收完整時移除 draft。
+- 不自動 merge GitHub PR、不部署、不動正式服務／資料庫，不開始摘要第二階段。
