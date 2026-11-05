@@ -1080,3 +1080,115 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
 - **最終判定：**
   - **Task 5.1 最終驗收門檻：** **NO-GO**（Phase 10 失敗，尚未達成 15 組全數通過）。
   - **禁止自我認證：** 嚴格不自封存、不移除 draft、不 merge GitHub PR。
+
+---
+
+## 20. Git 環境案例整合修復、Phase 10 全量執行與 Fail-Stop 診斷 (Tasks 2.12, 4.2, 4.3, 4.4)
+
+**日期：** 2026-11-05  
+**執行者：** agy Gemini 3.8 Flash High（原生工具執行，無 MCP / Hindsight / 子 agent）  
+**前置 Parent HEAD：** `c3859746954e49dac45b2d14213c454d2502d355`  
+**整合 Pre-merge Commit：** `fcf4b3d1fa5ed7cea8566c6c7fab89601b648e8b`  
+**修復分支 HEAD：** `599d7a6cd37f410274fe5ebd7d071e80e7f0f6f1`（已標記 tag `repair-599d7a6cd`）  
+**整合 Merge Commit：** `56d517eeffd24287161329b2f86595dcdef4d165`（Parents: `fcf4b3d1f`, `599d7a6cd`）  
+**新不可變凍結快照：** `/private/tmp/pv-git-env-fixture-fix`（detached 於 `56d517eeffd2`，tree: `faa45f1d9342`）  
+
+### 20.1 來源等價性與差異分析
+
+1. **三方整合與 Commit 歷程：**
+   - 整合前先行將 3 個 parent OpenSpec 規範文件（`design.md`, `spec.md`, `tasks.md`）與原樣未變動的獨立審查報告 `doc/plans/2026-11-05-git-env-fixture-independent-review.md`（SHA256: `2561ccd4e5dc7a447d25c5eadc829aa541747b644ef7c83706e81a3b4f54760b`）以常規 commit `fcf4b3d1f` 提交。
+   - 隨後執行常規本機 merge：`git merge --no-ff --no-edit fix/portable-validation-baseline`，由 ort 策略乾淨自動整合，生成 merge commit `56d517eeffd2`。
+2. **對照舊快照之源碼差異清冊：**
+   - **對照 `3f1eb1b7b`（7 檔變更）：** 僅 1 個測試檔 `packages/adapter-utils/src/github-launcher-environment.test.ts`（+34 行）及 6 個規範／計畫 Markdown 文件。零生產程式碼、零共用工具、零 lockfile 差異。
+   - **對照 `cc56bbcd3`（12 檔變更）：** 僅 2 個測試檔（`packages/adapter-utils/src/github-launcher-environment.test.ts` 與 `server/src/__tests__/file-resources-git-scan-load.test.ts`）及文件。
+3. **重要檔案雜湊等價驗證：**
+   - **5 個 Pi 摘要去重檔案：**
+     - `packages/adapter-utils/src/continuation-summary-dedup.test.ts`: `2a516bbf...`
+     - `packages/adapter-utils/src/server-utils.ts`: `417b4066...`
+     - `packages/adapters/opencode-local/src/server/execute.test.ts`: `222ace23...`
+     - `packages/adapters/pi-local/src/server/execute.summary-dedup.test.ts`: `d55586be...`
+     - `packages/adapters/pi-local/src/server/execute.ts`: `036a23cd...`
+     （與 `cc56bbcd3` 及原始分支 100% 逐 byte 相同）。
+   - **負載測試檔：** `server/src/__tests__/file-resources-git-scan-load.test.ts` SHA256: `93234ee1cd3efd738cc11198cc48a3b027c3505f252cbf8fb490317004cab24c`（與 `3f1eb1b7b` 100% 逐 byte 相同）。
+   - **Git 環境測試檔：** `packages/adapter-utils/src/github-launcher-environment.test.ts` SHA256: `d4e275c7357fbf0277281907a85bfbebc6e84a6a4f92a6f5bc4a117b0630550d`。
+
+### 20.2 整合快照 8 項前置驗證（Preflight & Invariants）
+
+在 `/private/tmp/pv-git-env-fixture-fix` 上以標準 Clean-env 環境執行：
+1. **Full preflight 10：** `scripts/validation-preflight.mjs --stage full` -> 10/10 PASS（Node 24.18.0, pnpm 9.15.4, Git 2.56.0, Python 3.9.6, Rustc/Cargo 1.97.1, 本機檔案系統, 0 uncommitted entries）。
+2. **Node environment 19：** `node --test scripts/validation-clean-env.test.mjs scripts/validation-preflight.test.mjs` -> 19 passed, 0 failed（耗時 14.07s）。
+3. **Whole changed file 36：** `vitest run --root packages/adapter-utils src/github-launcher-environment.test.ts` -> 35 passed, 1 skipped（36 total，macOS Darwin 正常跳過 Linux 專用案例）。
+4. **Current load 6：** `vitest run --root server src/__tests__/file-resources-git-scan-load.test.ts` -> 6 passed（500 requests, 498 joins, 2 scans, p99=2.99ms, exit 0）。
+5. **Cache 1：** `vitest run --root server src/__tests__/vitest-chat-shards.test.ts` -> 1 passed（7 個 trace cases 恰好一次）。
+6. **Scoped types 0：** `tsc --noEmit` in `packages/adapter-utils` -> 0 diagnostic errors（exit 0）。
+7. **Module boundary：** `scripts/check-module-boundaries.mjs` -> Feature module boundary check passed（exit 0）。
+8. **Runtime assets 15：** `scripts/run-typecheck-build-gaps.mjs --runtime-assets-only` -> 15/15 assets present in dist（exit 0）。
+
+### 20.3 官方 Dry-Run 選集盤點與審查報告勘誤
+
+1. **官方 Dry-Run 盤點結果：**
+   - **General Workspaces-b 專案清單（共 17 個專案）：**
+     `@paperclipai/shared`, `@paperclipai/skills-catalog`, `@paperclipai/adapter-utils`, `@paperclipai/adapter-claude-local`, `@paperclipai/adapter-codex-local`, `@paperclipai/adapter-cursor-cloud`, `@paperclipai/adapter-cursor-local`, `@paperclipai/adapter-gemini-local`, `@paperclipai/adapter-grok-local`, `@paperclipai/hermes-paperclip-adapter`, `@paperclipai/adapter-kimi-local`, `@paperclipai/adapter-openclaw-gateway`, `@paperclipai/adapter-opencode-local`, `@paperclipai/adapter-pi-local`, `@paperclipai/plugin-daytona`, `@paperclipai/plugin-sdk`, `@paperclipai/create-paperclip-plugin`。
+   - **非 Server 總專案數（共 20 個）：**
+     Workspaces-a（2 個：`@paperclipai/ui`, `paperclipai`）+ Workspaces-b（17 個）+ Workspaces-c（1 個：`@paperclipai/db`）= 20 個。
+   - **Server 與 Serialized 清單：**
+     1434 個 server 測試檔（1433 個不含 chat 之 server 檔含 9 個 native runner 檔；以及 1 個 chat suite），166 個 serialized 路由測試檔，6 個 chat worker shards。
+   - **測試案例淨變更：** 僅 `github-launcher-environment.test.ts` 新增 1 個含有空格路徑的 global config 覆寫優先級案例，全 repo 零新增測試檔案。
+2. **同儕審查報告 SUGGESTION-2 之「189 檔」勘誤澄清：**
+   - 審查報告 `doc/plans/2026-11-05-git-env-fixture-independent-review.md` 中提及「all 189 test files」為誤解。189 僅為 Phase 10 Attempt 1 於中斷在 `adapter-utils` 前由 Vitest accumulator 所累計之部分檔案數，絕非 17 個工作區專案之全量總數。官方 17 專案清冊具權威性，實際全量執行時測試檔總數遠超 189 檔。依使用者指示，保留同儕報告原始 bytes，於本節正式勘誤澄清。
+
+### 20.4 Phase 10 執行紀錄與 Fail-Stop 中斷診斷
+
+1. **Phase 10 Attempt 2 執行概況：**
+   - **執行指令：** `/Users/Hermes/.nvm/versions/node/v24.18.0/bin/node /private/tmp/pv-git-env-fixture-fix/scripts/validation-clean-env.mjs ... -- /Users/Hermes/.nvm/versions/node/v24.18.0/bin/node /private/tmp/pv-git-env-fixture-fix/scripts/run-vitest-stable.mjs --mode general --group general-workspaces-b`
+   - **耗時與結果：** 耗時 175.8s，退出碼 `1`（FAILED）。
+   - **日誌保存：** `/private/tmp/pv-full/logs/phase-10-general-workspaces-b.attempt2.log`。
+2. **已通過之專案（9 個專案，全數通過）：**
+   - `@paperclipai/shared`：97 files passed（1052 tests passed）
+   - `@paperclipai/skills-catalog`：PASSED
+   - `@paperclipai/adapter-utils`：PASSED（包含修復目標 `github-launcher-environment.test.ts` 35 passed, 1 skipped，前次 Attempt 1 之 `AssertionError: expected ... to be undefined` 完全解決）
+   - `@paperclipai/adapter-claude-local`：PASSED（12 files passed, 172 tests passed）
+   - `@paperclipai/adapter-codex-local`：PASSED
+   - `@paperclipai/adapter-cursor-cloud`：PASSED
+   - `@paperclipai/adapter-cursor-local`：PASSED
+   - `@paperclipai/adapter-gemini-local`：PASSED
+   - `@paperclipai/adapter-grok-local`：PASSED（12 files passed, 149 tests passed）
+3. **失敗專案定位與根因分析（第 10 個專案）：**
+   - **失敗專案：** `@paperclipai/hermes-paperclip-adapter`
+   - **失敗檔案與案例（共 3 個失敗測試）：**
+     1. `src/server/command-resolution.test.ts > testEnvironment accepts config.command when hermesCommand is absent`
+        - 錯誤：`AssertionError: expected 'fail' not to be 'fail'`
+     2. `src/server/detect-model.test.ts > testEnvironment does not warn about missing API keys when Hermes config provides a supported provider api_key`
+        - 錯誤：`AssertionError: expected 'fail' to be 'pass'`
+     3. `src/server/detect-model.test.ts > testEnvironment does not warn about missing API keys when Hermes config provides a custom provider base_url and api_key`
+        - 錯誤：`AssertionError: expected 'fail' to be 'pass'`
+   - **因果機制（Root Cause）：**
+     - 在 `@paperclipai/hermes-paperclip-adapter/src/server/test.ts` 中，`testEnvironment()` 內部呼叫 `checkPython()`，執行 `python3 --version`，並硬編碼檢查：
+       ```ts
+       if (major < 3 || (major === 3 && minor < 10)) {
+         return {
+           level: "error",
+           message: `Python ${version} found — Hermes requires Python 3.10+`,
+           code: "hermes_python_old",
+         };
+       }
+       ```
+       當檢測到 Python < 3.10 時，產生 level: "error" 檢查項，進而將整體 `status` 標記為 `"fail"`。
+     - 在 clean-env 呼叫參數中，依使用者規定指定 `--bin /usr/bin --bin /opt/homebrew/bin`（`/usr/bin` 在 Homebrew 之前）。因此子行程的 `PATH` 中 `/usr/bin` 優先於 `/opt/homebrew/bin`。
+     - 在本機 macOS 系統中，`/usr/bin/python3` 為 Apple 系統自帶的 Python 3.9.6（< 3.10），而 Homebrew 的 Python 3.15.2 位於 `/opt/homebrew/bin/python3`。子行程執行 `python3` 命中 3.9.6，直接觸發 `hermes_python_old` 錯誤，致使上述 3 個斷言 `expect(result.status).not.toBe("fail")` 與 `toBe("pass")` 失敗。
+4. **Fail-Stop 規範執行：**
+   - 依使用者最高規範：Phase 10 在第 10 個專案失敗後立即中止，後續第 11–17 個專案未執行。
+   - 後續 Phase 11 至 Phase 15 維持 **NOT_RUN**。
+   - 嚴格禁止修改正式程式碼、禁止重試到綠燈、禁止偽造跳過測試。
+
+### 20.5 最終任務進度與門禁判定
+
+- **Task 2.12：** `[ ]` **未完成／門禁 PENDING**（雖 `github-launcher-environment.test.ts` 已完全通過，但依規範須待 Phase 10 全部 17 個專案皆 exit 0 方可打勾，因 Hermes adapter 失敗故維持未完成）。
+- **Task 4.2：** `[x]` **已完成**（新快照 Preflight 10/10、Node 19、快取自測、負載自測、tsc、邊界檢查全數通過）。
+- **Task 4.3：** `[x]` **已完成**（官方 dry-run inventory 完整導出並完成 189 檔勘誤澄清）。
+- **Task 4.4：** `[ ]` **未完成 (FAILED at Phase 10 Attempt 2)**（Phase 10 未完全通過，Phase 11–15 NOT_RUN）。
+- **Task 5.1 / 5.2：** `[ ]` **未完成／待獨立審查交付 (PENDING)**。
+- **門禁結論：**
+  - **Task 5.1 最終交付門檻：** **NO-GO**。
+  - **嚴格禁止自我認證：** 不自封存、不移除 draft、不 merge GitHub PR、不 push。
+
