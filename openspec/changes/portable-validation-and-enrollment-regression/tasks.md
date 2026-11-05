@@ -13,9 +13,9 @@
 - [x] 2.4 更新開發文件中隔離驗證、工具覆寫、先跑 blocker 的命令及失敗處理；在乾淨暫存 HOME 執行文件命令證明不需未版本化 monkeypatch 或全域 symlink。
 
 - [ ] 2.5 修正獨立審查 W1/W2：補正事故紀錄（真實下載／執行、TMPDIR log、繼承環境及無法證明事項），強化安裝 guard 涵蓋 command／args／可執行 stdin 與變形安裝命令；以無網路 sentinel 證明執行前攔截，禁止重演真實安裝或繞過刪除限制，經獨立複審確認。
-- [ ] 2.6 補齊 preflight 唯讀邊界：Git optional locks、Corepack 禁網路、暫存建立失敗的機讀輸出；相關 fault tests 通過，確認無全域寫入或安裝，記錄實際驗證的 Node 版本限制。
+- [x] 2.6 補齊 preflight 唯讀邊界：Git optional locks、Corepack 禁網路、暫存建立失敗的機讀輸出；相關 fault tests 通過，確認無全域寫入或安裝，記錄實際驗證的 Node 版本限制。
 
-- [ ] 2.7 定義並實測可重現的 secret-free 驗證子行程環境：明確 allowlist、自有 HOME／Paperclip 設定、必要工具／cache；以假憑證 sentinel 證明不繼承主機變數，不改父 agent 認證或全域設定，不讀取真實秘密；乾淨環境的 preflight 與 blocker suites 全部通過，文件清楚說明並非 OS sandbox。
+- [x] 2.7 定義並實測可重現的 secret-free 驗證子行程環境：明確 allowlist、自有 HOME／Paperclip 設定、必要工具／cache；以假憑證 sentinel 證明不繼承主機變數，不改父 agent 認證或全域設定，不讀取真實秘密；乾淨環境的 preflight 與 blocker suites 全部通過，文件清楚說明並非 OS sandbox。
 
 ## 3. GitHub enrollment 因果修復
 

@@ -1,6 +1,6 @@
 # 可攜驗證基線與 GitHub enrollment 回歸：驗證紀錄（tasks 1–3）
 
-狀態：OpenSpec change `portable-validation-and-enrollment-regression` 的 **tasks 1.1–3.3 已完成並附證據**。**tasks 4–5（整合、完整覆蓋驗證、獨立驗證）尚未開始**，本文件不宣稱完整驗收、不可封存。PR：https://github.com/heartpleasure101-stack/paperclip/pull/2（draft，base=`master`）。
+狀態：OpenSpec change `portable-validation-and-enrollment-regression` 的 **tasks 1.1–3.3 已完成並附證據**。**tasks 4–5（整合、完整覆蓋驗證、獨立驗證）尚未開始**，本文件不宣稱完整驗收、不可封存。獨立審查（`2026-11-05-portable-validation-independent-review.md`，審查者所有，未修改）的 W1/W2 與新增 tasks 2.5–2.7 的處理見 §10；**§7.4 的事故描述已由 §10.1 更正，請以更正為準**。PR：https://github.com/heartpleasure101-stack/paperclip/pull/2（draft，base=`master`）。
 
 ## 1. 環境與快照
 
@@ -121,7 +121,12 @@
 1. 第一輪測試用 `timeout` 指令（本機沒有）→ `exit=127`，改以工具逾時；非程式碼問題。
 2. 只改 sandbox 案例後，以排除主機 Node 的環境重跑 Cursor：3 個本機案例失敗（`#!/usr/bin/env node` 在繼承的 PATH 找不到 node）。task 2.1 要求「原 5 案例」都在該環境通過，因此補上 `fixtureRuntimeEnv`。
 3. Preflight 測試第一次有 1 個失敗：fake Git 在空 `PATH` 下找不到 `mkdir`／`cat`；調整測試的 PATH 與 fake 腳本，與 preflight 邏輯無關。檔案系統偵測原本在 `mount` 缺席時會謊報「本機」，已改為回報 `skip`（無法判斷）。
-4. **事件（已揭露）：** 為探測「缺失命令」行為，我曾寫一個**未提交、已刪除**的暫時探針，其 runner **沒有**複製正式測試對 `curl https://cursor.com/install` 的防護，因此該探針確實執行了 Cursor 官方安裝腳本。影響範圍：寫入僅在探針自己的暫存 fake HOME（`/var/folders/0w/j69x0g910m182rtbp39_14dm0000gp/T/probe-RE6HFW` 與 `probe-F4lJKQ`）；已確認真實 `~/.local/bin`、`~/.local/share`、`~/.cursor` 沒有任何 Cursor 檔案、沒有殘留 cursor 行程。這兩個暫存目錄因環境規則禁止遞迴刪除而**留待人工清理**。正式測試（及新增負向案例）一律使用會在 curl 前 `throw` 的 runner。
+4. **事件（已揭露；原始紀錄保留作歷史，內容有誤，已被更正）：** 以下引用是 tasks 1–3 提交時的原文，其中「寫入僅在探針自己的暫存 fake HOME」「沒有殘留 cursor 行程」等句**低估了事故**，請讀 §10.1 的更正。
+
+   > 4. **事件（已揭露）：** 為探測「缺失命令」行為，我曾寫一個**未提交、已刪除**的暫時探針，其 runner **沒有**複製正式測試對 `curl https://cursor.com/install` 的防護，因此該探針確實執行了 Cursor 官方安裝腳本。影響範圍：寫入僅在探針自己的暫存 fake HOME（`/var/folders/0w/j69x0g910m182rtbp39_14dm0000gp/T/probe-RE6HFW` 與 `probe-F4lJKQ`）；已確認真實 `~/.local/bin`、`~/.local/share`、`~/.cursor` 沒有任何 Cursor 檔案、沒有殘留 cursor 行程。這兩個暫存目錄因環境規則禁止遞迴刪除而**留待人工清理**。正式測試（及新增負向案例）一律使用會在 curl 前 `throw` 的 runner。
+
+   **更正（見 §10.1）：** 探針確實完整下載並**執行**了 Cursor CLI，並在真實 `$TMPDIR` 寫了 log，下載的 binary 繼承了執行者的完整環境。不得由此推論「沒有影響」。
+
 5. 診斷用暫時測試檔及 mutation 副本只存在 `/private/tmp/pv-diag`、`/private/tmp/pv-mut`，沒有進入 commit。
 
 ## 8. 斷言保留對照
@@ -137,4 +142,162 @@
 2. 預設 Apple Git 2.39.3 仍使 preflight 失敗；整合階段必須將 Git 2.56.0 置於 PATH 前面（`/private/tmp/pi-dedup-git-toolchain/bin`）。
 3. 因果結論只在 Node 24.18.0／undici 7.28.0 驗證；其他 Node 版本未驗。
 4. 依 design 決策 6 與使用者指示，parent 原稿（原工作區 untracked 的 `openspec/changes/portable-validation-and-enrollment-regression/`）必須在 task 4.1 合併進摘要分支**之前**先備份並比對雜湊，否則合併會因 untracked 檔案衝突或覆蓋。
-5. 兩個 `probe-*` 暫存目錄待人工清理（見 §7.4）。
+5. 三個事故路徑（兩個 `probe-*` 與真實 `$TMPDIR` 內的 `cursor-agent-logs-502`）待擁有者處置（見 §10.1；此處原本只列兩個，已更正）。
+
+## 10. 獨立審查 W1/W2 與 tasks 2.5–2.7 的處理
+
+快照：分支 `fix/portable-validation-baseline`，Node v24.18.0、pnpm 9.15.4（隔離快取）、Git 2.56.0（`/private/tmp/pi-dedup-git-toolchain/bin`）、系統 Python 3.9.6；本節所有指令皆**沒有**下載、安裝、執行 Cursor CLI，也沒有接觸真實 provider。log 在 `/private/tmp/pv-logs/w12/`。
+
+### 10.1 W1：事故紀錄更正（task 2.5）
+
+事實來源：獨立審查 §2（磁碟 metadata 重建）與原 worker 的自述。本 session **沒有**開啟、執行、列舉、修改或刪除下列三個路徑，也沒有讀取任何憑證值；以下是對審查所述事實的轉述，不是重新驗證。
+
+**確定發生的事（不得淡化）：**
+
+1. 一個未提交、已刪除的暫時探針，其 runner 沒有複製正式測試的安裝 guard，因此**真的執行了 Cursor 官方安裝流程**。
+2. 安裝**完成**：`probe-RE6HFW`（約 638 MB、628 個項目）內有 Cursor agent 版本 `2026.10.22-27dcf5f` 的完整 vendor release（`cursor-agent-sea` 約 153 MB、`cursor-agent-worker-sea` 約 167 MB、含預編譯 `.node` 的 `node_modules`）。release 無法不經網路抵達，所以有對 `cursor.com` 的網路連線。
+3. 下載的 CLI **被執行**：版本目錄有 `.running`、fake home 內有 Node compile cache、一份 session log 記錄 `analytics.track {"eventName":"cli.launch"}`（PID 95377，本地時間約 09:07:04）。也就是 adapter 的 `execute()` 啟動了剛下載的 binary。
+4. 該 binary **在真實 `$TMPDIR` 寫了 log**：`cursor-agent-logs-502/`（一份 1869 位元組 log 加 `latest.log` 符號連結），因此並非「寫入僅限 fake HOME」。審查者未在該 log 看到像憑證的值。
+5. adapter 以 `{ ...process.env, ...env }` 啟動子行程（`packages/adapters/cursor-local/src/server/execute.ts`），所以下載的 vendor binary 繼承了**執行該探針之行程的整個環境**。
+6. 原紀錄寫的「沒有殘留 cursor 行程」只是一項觀察，不代表沒有影響。
+
+**無法證明的事（沒有證據，不是「已證明沒有」）：**
+
+- 該環境裡是否有 token / API key：未知，磁碟證據無法判定；這是最大的未界定風險。
+- `cli.launch` analytics 事件是否離開本機：未知。
+- 安裝腳本本身與其網路流量未保存，無法證明它只使用 `$HOME`。
+- 事故前沒有真實 HOME 的基準快照，「沒變」只建立在有限深度的 mtime 視窗上。
+- 未檢查 Keychain、launchd 狀態、`defaults` 網域、quarantine 資料庫或其他使用者路徑。
+- **因此不能宣稱已排除外洩，也不能宣稱「沒有影響」。**
+
+**另外觀察到（與上面的「無法證明」分開看）：** 審查者的 `ps`/`lsof` 在兩個探針目錄下沒有找到仍在執行的行程（PID 95377 已結束）；真實 HOME 的 `~/.local/share/cursor-agent`、`~/.local/bin/agent`、`~/.local/bin/cursor-agent`、`~/.cursor`、`~/Library/Caches/cursor*`、`~/Library/Application Support/Cursor*` 皆不存在；shell rc 與 LaunchAgents 的 mtime 早於事故視窗；fake home 內沒有 rc 檔編輯。`probe-F4lJKQ` 只是空骨架，**不是**「guard 有效」的證據。`~/.local/bin` 目錄 mtime 為 09:29:46（事故之後），無法歸因，內容沒有 Cursor 檔案。
+
+**保留的證據路徑（皆未動；刪除曾被安全 hook 拒絕，沒有改用其他 API 或指令繞過）：**
+
+1. `/var/folders/0w/j69x0g910m182rtbp39_14dm0000gp/T/probe-RE6HFW`（約 638 MB）
+2. `/var/folders/0w/j69x0g910m182rtbp39_14dm0000gp/T/probe-F4lJKQ`（空樹）
+3. `/var/folders/0w/j69x0g910m182rtbp39_14dm0000gp/T/cursor-agent-logs-502`（log 與符號連結）
+
+**待擁有者決定（本 session 不做）：** 是否授權清理上述三個路徑；是否需要輪替事故當時可能存在於該行程環境的任何秘密。沒有自動輪替，也沒有進行秘密探勘（沒有列舉環境變數或讀取憑證檔）。
+
+### 10.2 W2：安裝 guard 改為執行前 fail-closed（task 2.5）
+
+`server/src/__tests__/helpers/sandbox-install-guard.ts`（新）；`cursor-local-execute.test.ts` 的 `createLocalSandboxRunner()` 現在只回傳 `createGuardedSandboxRunner()`，所有整合案例（含兩個負向案例）都經過它；原本「複製字面字串」的子字串檢查已被取代。生產碼零變更；`SANDBOX_INSTALL_COMMAND` 本來就由套件根匯出，沒有為測試新增任何生產 export。
+
+| 層 | 行為 |
+|---|---|
+| 呼叫形式 | 只接受 `sh`/`bash -c <單一腳本>`，或位於暫存根目錄內（`realpath` 解析後仍在其內）的既有 fixture 執行檔；`curl`、`/usr/bin/curl`、`env curl`、`python3`、`sh`/`sh -s`/`bash -`（程式碼來自 stdin）、相對路徑、不存在的路徑、指向暫存目錄外的符號連結一律拒絕 |
+| stdin | 對 shell 腳本，stdin 只在腳本恰為 `base64 -d >> <檔案>`（資料落地）時接受；其他帶 stdin 的 shell 一律拒絕。fixture 執行檔的 stdin 是提示詞資料 |
+| 詞彙 | 安裝 URL／`cursor.com`、URL scheme、curl/wget/fetch/nc/ssh 等下載工具、套件與工具鏈管理員、`git clone` 類、腳本 runtime、`install*`、eval/source/exec、`/dev/tcp`、管線進直譯器、`base64 -d` 後接管線，在去除引號與反斜線後比對（`cu''rl`、`c\url` 也會命中） |
+| 變形 | 反引號、`$(...)`（只放行 `$(command -v …)`）、`${…}`、`$'…'`、未知變數、裸直譯器（無 `-c`）一律拒絕 |
+| fail-closed | 去除路徑後，腳本內任何**不在已知詞彙表**的單字即拒絕；adapter 新增腳本形式會響亮失敗，而不是默默放行 |
+| 與常數的關係 | 另外正規化後比對匯入的 `SANDBOX_INSTALL_COMMAND`；就算常數改變，其他層仍會攔截（單元測試用改寫過的常數：http、`wget -qO-`、不同旗標、大寫） |
+
+拒絕訊息保留 `Sandbox fixture did not discover its preinstalled Cursor CLI`（原有負向斷言的 regex 不變），並附 `blocked before execution: <原因>`。誠實的限制：這是**防止意外網路安裝**的測試護欄，不是對抗性的 shell 沙箱。
+
+首次整合時 guard 就攔下了一個合法的 adapter 探測腳本（printf 的 `\n` 被正規化成單字 `sn`），adapter 吞掉該拒絕後走到安裝分支，再被 guard 擋下；整個過程沒有任何網路使用。修正詞彙萃取後通過。這也是 fail-closed 行為的實際示範。
+
+**secretless 假 runner 環境：** `runChildProcess` 會把 `process.env` 併入子行程環境，而 adapter 在部分呼叫中把整份主機環境放進 `input.env`（實測：部分 probe 的 `input.env` 有數十個主機變數）。假 runner 的後端改以 `/usr/bin/env -i` 啟動，只傳 `HOME`、`PATH`、`LANG`、`LC_ALL`、`TMPDIR` 與 adapter 提供的 `PAPERCLIP_*`；`PATH` 缺席時用系統路徑，不用主機 PATH。這**沒有**更動 SUT（adapter 仍照舊傳 env），只限制假 CLI 看得到什麼。
+
+**測試與實測：**
+
+| 檢查 | 結果 |
+|---|---|
+| `sandbox-install-guard.test.ts`（新；純函式＋記錄用 sentinel backend；無任何真實下載器） | 57 個案例：13 個已知形式放行、拒絕案例表、fixture 執行檔／符號連結／URL 參數、組合（拒絕時 backend 從未被呼叫、放行時恰好一次）、secretless env（含 sentinel） |
+| `cursor-local-execute.test.ts`（原斷言保留，`expect(` 31 → 31；唯一移除的是被取代的行內 runner 與其 import） | 7/7 |
+| guard 變異（只跑上面的**單元檔**，絕不跑 Cursor 整合檔；每次還原後雜湊與 `9b3ad35e…` 相同） | MG1 全放行→39 失敗；MG2 無詞彙表→4；MG3 runner 不呼叫 guard→1；MG4 stdin 不檢查→1；MG5 裸直譯器放行→**首次存活**（56/56），補了「巢狀 `sh <檔案>`」案例後→1 失敗；MG6 不檢查 shell 形式→4；MG7 env 全傳→2；MG8 未知單字放行→1；MG9 不檢查根目錄→3 |
+| 反例安全 | 所有反例只是傳給純函式或 sentinel backend 的惰性字串；沒有任何真實 `curl`/`wget`/安裝腳本被執行，包含暫時診斷。探索 adapter 呼叫形式時，用的是仍啟用舊 guard 的記錄包裝，之後還原 |
+
+探索期間有兩次命令被安全 hook 拒絕（一次是強制刪除舊 log，一次是以重導向清空檔案）；兩次都是**整條命令未執行**，我改用新檔名，沒有繞過。
+
+### 10.3 tasks 2.6：preflight 唯讀邊界
+
+`scripts/validation-preflight.mjs`：新增匯出 `READ_ONLY_PROBE_ENV`（`RUSTUP_AUTO_INSTALL=0`、`COREPACK_ENABLE_NETWORK=0`、`COREPACK_ENABLE_AUTO_PIN=0`、`GIT_OPTIONAL_LOCKS=0`），套用到所有探測子行程（含私有暫存 repo 的 Git 探測與 `git status`／`rev-parse`）；暫存目錄建立失敗時，回報 `git-rev-list-stdin-not` 失敗並附原因（`cannot create a private probe directory under …: ENOTDIR`），輸出 JSON 與非零退出，不再丟未捕捉例外。
+
+| 檢查 | 結果 |
+|---|---|
+| `node --test scripts/validation-preflight.test.mjs` | 12/12（原 8＋4 個 fault test：呼叫者設 `GIT_OPTIONAL_LOCKS=1` 時每個 Git 呼叫仍為 0；呼叫者設 `COREPACK_ENABLE_NETWORK=1` 時 pnpm／cargo 探測仍為 0；`TMPDIR` 指向一般檔案→JSON `ok:false`、exit 1、stderr 為空；API 版本的缺目錄，不留目錄） |
+| 變異（還原後雜湊 `cd672c38…`） | MP1 拿掉 optional locks→1 失敗；MP2 拿掉 Corepack→1；MP3 快照讀取不保護→1；MP4 暫存失敗改丟例外→2；MP5 暫存 repo 不保護→1 |
+| 倉庫 index 實測 | 先令 index 過期（touch 追蹤檔 mtime），preflight 前後 index 的 `mtime size` 皆為 `1793843421 1658919`；緊接著的普通 `git status` 則刷新為 `1793844072` |
+| 真實 pnpm shim | 乾淨環境第一次跑 preflight：nvm 的 `pnpm` 是 Corepack shim，探測正確失敗並顯示 `Corepack is about to download https://registry.npmjs.org/pnpm/-/pnpm-9.15.4.tgz`，**沒有下載**（§10.4 說明如何提供快取） |
+| 全域寫入／安裝 | 無：沒有安裝、沒有全域 symlink、沒有改動 profile；探測目錄用完即清 |
+
+**實際驗證的 Node 版本限制（W3，已知限制）：** enrollment ack=0 的因果診斷（undici 的零延遲 `setTimeout` 被假計時器攔住）只在 **Node v24.18.0 / undici 7.28.0** 驗證。CI 使用浮動 `node-version: 24`，其他 24.x 小版本與較舊 Node 未驗證；`settleDueTimers()` 修法不依賴特定 undici 版本，但這**不是**未來 24.x 全矩陣的證明。已寫入 `doc/DEVELOPING.md`。
+
+### 10.4 tasks 2.7：secret-free 驗證子行程環境
+
+`scripts/validation-clean-env.mjs`（新，約 130 行、無新套件）＋ `scripts/validation-clean-env.test.mjs`（7 案例）＋ package.json 兩個 script（`validation:clean-env`、`test:validation-clean-env`）＋ `doc/DEVELOPING.md`〈Secret-free validation subprocess〉。
+
+- **allowlist：** `PATH`（執行中的 Node、每個 `--bin` 宣告目錄、系統目錄）、擁有的暫存 `HOME`／`TMPDIR`／`PAPERCLIP_HOME`／`XDG_*`、`GIT_CONFIG_GLOBAL`（含**合成**測試身分 `Paperclip Validation <validation@paperclip.invalid>`）、`GIT_CONFIG_NOSYSTEM=1`、`GIT_TERMINAL_PROMPT=0`、`GIT_OPTIONAL_LOCKS=0`、`COREPACK_HOME`（擁有的空目錄，可用 `--set` 指向隔離快取）、`COREPACK_ENABLE_NETWORK=0`、`COREPACK_ENABLE_AUTO_PIN=0`、`RUSTUP_AUTO_INSTALL=0`。其他一律不傳。
+- `--set`／`--pass` 可明確加入額外變數，但拒絕名稱含 `KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH|COOKIE|SESSION`、`NODE_OPTIONS`、`NODE_PATH`、`BASH_ENV`、`ENV`、`LD_PRELOAD`、`DYLD_*`、`DATABASE_URL`、`PAPERCLIP_TEST_DATABASE_URL`；結束時移除擁有的目錄。
+- **不是 OS sandbox**：仍以你的使用者身分執行，可讀你能讀的檔、可連網；不更動父行程、父 agent 的模型認證或任何全域設定。（`__CF_USER_TEXT_ENCODING` 是 macOS 在啟動程序時自行加入的，helper 的計畫輸出不含它。）
+- **快取 pnpm：** nvm 的 pnpm 是 Corepack shim。把已存在的主機 Corepack 快取中的 `pnpm/9.15.4`（唯讀複製，19 MB）放到隔離目錄 `/private/tmp/pv-clean-tools/corepack`，以 `--set COREPACK_HOME=…` 提供；沒有任何下載，也沒有寫入主機快取。
+
+**證明（假 sentinel，不讀任何真實秘密）：**
+
+| 檢查 | 結果 |
+|---|---|
+| 父 shell 設 `PV_FAKE_PROVIDER_API_KEY`、`OPENAI_API_KEY`（皆為假字串）後，在乾淨環境印出 | 兩者皆 `null`；變數名單恰為 allowlist＋`__CF_USER_TEXT_ENCODING`；`HOME`／`PAPERCLIP_HOME` 在擁有的暫存根（`clean/sentinel.json`） |
+| 單元測試的主機環境有 sentinel 金鑰、`DATABASE_URL`、`GIT_AUTHOR_EMAIL`、**有效的** `NODE_OPTIONS=--require=<預載檔>`（會設定 `PV_PRELOAD_MARKER`）、個人 HOME 的 `.gitconfig` | 子行程沒有任何這些，也沒有 `PV_PRELOAD_MARKER`；Git 讀到的是合成身分（`git config --global --get user.email`） |
+| `node --test scripts/validation-clean-env.test.mjs` | 7/7 |
+| 變異（還原後雜湊 `233d12ab…`） | MC1 繼承全部→2 失敗；MC2 用主機 HOME→1；MC3 不拒絕憑證名→1；MC4 洩漏 NODE_OPTIONS→2；MC5 不設 Git config→5；MC6 不清理→1；MC7 Corepack 網路不關→1 |
+
+**乾淨環境下的 preflight 與 blocker suites**（`CLEAN="node scripts/validation-clean-env.mjs --bin /private/tmp/pi-dedup-git-toolchain/bin --set COREPACK_HOME=/private/tmp/pv-clean-tools/corepack"`；父 shell 持有上述假 sentinel；log 在 `/private/tmp/pv-logs/w12/clean/`；文件與 package.json 修改後在最終樹上重跑）：
+
+| # | 指令（皆 `$CLEAN -- …`） | exit | 結果 |
+|---|---|---|---|
+| A | `pnpm run test:validation-preflight` | 0 | 12 pass / 0 fail |
+| B | `pnpm run test:validation-clean-env` | 0 | 7 pass / 0 fail |
+| C | `node scripts/validation-preflight.mjs --stage blockers` | 0 | `preflight passed`（node 24.18.0、pnpm 9.15.4、git 2.56.0＋`--not` 探測通過、python 3.9.6；rust SKIP，此階段不需要） |
+| D | `/usr/bin/python3 -I server/src/__tests__/fixtures/muse-client-contract.py …/v9/client.py` | 0 | `Ran 64 tests … OK`（Homebrew `/opt/homebrew/bin/python3` 3.15.2 亦 `OK`，exit 0） |
+| E | `cd server && pnpm exec vitest run cursor-local-execute sandbox-install-guard muse-client-contract fake-clock-io github-connection-enrollment-work` | 0 | `Test Files 5 passed (5)`、`Tests 87 passed (87)`（57＋19＋1＋7＋3；沒有 skip，enrollment 案例確實執行，不是 `describe.skip`） |
+
+沒有執行 typecheck、build、整合或全量測試（依指示）。
+
+### 10.5 對照審查建議
+
+| 審查項目 | 處理 |
+|---|---|
+| W1 | §10.1：更正、保留原文為歷史；不宣稱無影響 |
+| W2 | §10.2：fail-closed guard＋純單元／sentinel 測試＋9 個變異＋secretless runner |
+| W3 | §10.3：寫成已知的已測版本限制（Node 24.18.0），不宣稱未來 24.x 矩陣 |
+| 建議 1（Git optional locks） | 已做；index 實測（§10.3） |
+| 建議 2（Corepack 網路） | 已做；真實 shim 實測被正確攔下 |
+| 建議 3（Cursor 本機案例 PATH 仍附加主機 PATH） | **未改**（保持原斷言與 fixture 行為）。獨立性改由 §10.4 的乾淨環境（PATH 只含宣告目錄）與先前的 `env -i` 執行佐證 |
+| 建議 4（暫存失敗） | 已做；fault test（§10.3） |
+
+### 10.6 規格同步與雜湊
+
+parent 修訂的 `design.md`、`tasks.md`、`specs/isolated-validation/spec.md` 已從原工作區逐字同步（`proposal.md`、`github-event-worker-lifecycle/spec.md`、`.openspec.yaml` 與原稿位元組相同）。作者雜湊（原工作區，清單 `/private/tmp/portable-validation-authoring-hashes-amend1.txt`）：
+
+```
+design.md                                    69547cab64c8bcfbc2b5b106103b0c725355dafc59353d4e231535bf290d1033
+tasks.md  （作者版：全未勾選）                e3e125165a9321876d23f1c6f66eeb1051620ed3a517e4d654a2de47d68478fe
+specs/isolated-validation/spec.md            a0689405bd10e7c2ae6593d035dd8baf161f04c8ba513edc00b08d9ea7db2058
+proposal.md                                  0741f9e16590cc9a619f85243edc126eafcb38f695932da919aba6bed1a8329d
+specs/github-event-worker-lifecycle/spec.md  e0028b8db1f216b6c7864dcec96d8c0586e45207cc4b01f9d85068643868bc7a
+```
+
+本分支的 `tasks.md` 與作者版僅差 checkbox（以任務編號保留既有進度 1.1–3.3；去除勾選後逐行比對相同）。同步前與同步後 `openspec validate … --strict` 皆通過（CLI 1.16.0、Node 24、`OPENSPEC_TELEMETRY=0`）。同步前本地 tasks 雜湊 `4cf5833b…`，同步（2.5–2.7 未勾選）後 `e3b005d7…`。本次證據提交中，2.6 與 2.7 已勾選（證據見 §10.3、§10.4）；**2.5 保持未勾選**，因為它要求「經獨立複審確認」，那是新的獨立 session 的工作，不是本 session 能自行宣告的。
+
+### 10.7 修改後的檔案雜湊（SHA-256）
+
+```
+cd672c38c19cc62863ff0187ba07de94002317681bf42fe19a76feb934f61dac  scripts/validation-preflight.mjs
+cdb268394f4fd8b5ee257b47508c658b09db9f2c61213f9a369a294fc32780b8  scripts/validation-preflight.test.mjs
+233d12abe0afae127475e00816b694388552c985b4821fc41fdf808bddc4a465  scripts/validation-clean-env.mjs
+dc813d2459091e413bcbac6292b7bee53cb82ec8edc391691a76bf1ea6b2612b  scripts/validation-clean-env.test.mjs
+9b3ad35e85ff167c23ef3d4543406aadcb189c14877e76c0fc859f084051d425  server/src/__tests__/helpers/sandbox-install-guard.ts
+c309cb0ae18d385314492aba4d486117660d7d45abb0c3a7f590de22f4377b68  server/src/__tests__/sandbox-install-guard.test.ts
+c7f8bd3f706801c4e8e7f122a06d9eb89feb97af770643852565ba7524cb0c20  server/src/__tests__/cursor-local-execute.test.ts
+a761315dc996ae8c333e62ce9947d300ea8f287754251bec2308192597172f44  doc/DEVELOPING.md
+a0d5a5d50d52eaff9abcb0e347983cc090e00014d69e306feebce86947dd584c  package.json
+```
+
+### 10.8 殘留與限制
+
+1. mutation MC6（刻意讓 helper 不清理）在 `$TMPDIR` 留下 8 個我自己建立的空骨架目錄 `paperclip-clean-env-*`（`0A9bKn`、`90ONAU`、`MWdUBJ`、`QFWPjY`、`U8Fs8R`、`kQvXLq`、`tHFExA`、`ylfgFd`，皆含 `git/config` 與空目錄）。安全 hook 禁止遞迴／強制刪除，我沒有繞過；請一併處置。正常（未變異）執行不留殘留。
+2. 另有隔離工具目錄 `/private/tmp/pv-clean-tools`（19 MB 的 pnpm 9.15.4 快取複本，我建立）。
+3. 審查報告 §8 的提醒（原工作區 untracked 副本的 checkbox 與本分支不同）仍待 task 4.1 對帳；本分支 `tasks.md` 已與作者版同步。
+4. 審查報告檔本身在本分支仍為 untracked，保持原樣、不由我修改。
+5. 未做：整合、typecheck、build、全量測試、merge、archive、phase 2。task 2.5 的「獨立複審」未做。
