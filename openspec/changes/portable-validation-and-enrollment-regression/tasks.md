@@ -25,6 +25,8 @@
 
 - [x] 2.11 在版本化修復工作樹只調整 file-resources-git-scan-load.test.ts 的TCP接受準備：小批次有界等待connection、不等待回應，維持500全部在途／零完成後才觀測、498joins／2scans／500個200、25health及p99<250ms；原15秒從第一負載請求起計含準備、60秒總限不變，保留故障時關閉連線／釋放Gate及立即觀察拒絕。不得採用maxSockets100降低實際負載、改產品／shared／runner或全域設定。驗證修正前後與負向清理，獨立複審後整合；逐組source/read-dependency等價清冊明確列真正測試commit，未知依賴／共享變更重跑受影響組，該檔及受影響全組必須新快照重跑，不冒稱舊結果已在新HEAD實跑。
 
+- [ ] 2.12 有界重現Phase10之GIT_CONFIG_GLOBAL前提衝突，只修正github-launcher-environment.test.ts的自有host fixture：fake HOME內明確模擬無override，保留原undefined／helper=store／token／metadata／隔離斷言；新增自有含空格global config優先於HOME假helper的明確override案例，所有stub由afterEach還原，不接觸真實config／憑證／Keychain。禁止改共用clean-env／execution-target／runner／產品或全域設定；對照修正前後、三次全檔與相關安全回歸、typecheck、負向控制及獨立複審後整合。逐組真正測試commit與byte/read-dependency等價證據不改寫；未知依賴重跑，全17project Phase10必須在新不可變快照重跑，不以單檔／單project取代，保留失敗與11–15未執行狀態。
+
 ## 3. GitHub enrollment 因果修復
 
 - [x] 3.1 在隔離快照取得 ack=0 的因果證據（工作者 poll 結果／errors、HTTP 階段、delivery 狀態、虛擬時鐘／真實 I/O）；有界證明是哪一階段未完成，記錄 real-timer 或受控延遲對照，禁止只延長等待。
@@ -34,8 +36,8 @@
 ## 4. 整合與完整覆蓋驗證
 
 - [x] 4.1 將修復分支以一般 merge commit 整合進原摘要 branch，記錄兩個 PR、merge SHA 與修復／Pi source tree；只做本機 merge 與普通 push，不 merge GitHub PR、不 force-push。
-- [x] 4.2 在不可變整合快照上通過 preflight、全部已知 blocker 及摘要去重相關回歸，再執行 typecheck/build；每項附退出碼，未通過則不跑昂貴全量。
-- [x] 4.3 用官方 dry-run 取得完整入口及分組／分片 inventory，證明 chat、general excluding chat/native、native-runner、workspaces-a/b/c、serialized 無遺漏；依本機資源限制並行並保存實際選集。
+- [ ] 4.2 在不可變整合快照上通過 preflight、全部已知 blocker 及摘要去重相關回歸，再執行 typecheck/build；每項附退出碼，未通過則不跑昂貴全量。
+- [ ] 4.3 用官方 dry-run 取得完整入口及分組／分片 inventory，證明 chat、general excluding chat/native、native-runner、workspaces-a/b/c、serialized 無遺漏；依本機資源限制並行並保存實際選集。
 - [ ] 4.4 執行全部官方等價測試組，每組／shard 皆保留命令、退出碼、tests／skips、版本及 log；確認每個必要組 exit=0、無測試替身修補檔滲入或程式碼變動，保留先前失敗。任何未跑／被停止／失敗不得標記完成。
 
 ## 5. 獨立驗證與可審查交付

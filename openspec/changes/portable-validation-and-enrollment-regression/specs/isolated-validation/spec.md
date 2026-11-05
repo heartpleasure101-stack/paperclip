@@ -54,6 +54,10 @@
 - **WHEN** 父行程有額外的憑證變數，而驗證子行程啟動
 - **THEN** 子行程不含這些變數，使用自己的 HOME／Paperclip 設定目錄，仍能取得明確配置的必要工具；驗證只用 sentinel 證明隔離，不讀取或輸出真實秘密
 
+#### Scenario: 測試模擬本機 Git 憑證 helper
+- **WHEN** 驗收環境明確設定自有 GIT_CONFIG_GLOBAL，而測試需要模擬只使用 HOME/.gitconfig 的本機 host
+- **THEN** fixture 在自有假 HOME 範圍明確建立該條件並於結束還原環境，原 helper／token／worktree metadata 與隔離模式斷言不得弱化；另驗證明確指定的自有 global config 可正確保留及讀取。不得移除共用 clean-env 的安全配置、讀取真實主機設定或修改正式 execution-target 行為。
+
 ### Requirement: Complete and auditable acceptance coverage
 
 完整驗收 SHALL 綁定每個實際執行組的不可變程式碼快照並覆蓋官方完整測試選集。跨 commit 延續證據僅可使用下述逐組執行等價證明，不得將舊 commit 的結果標為已在新 commit 完整實跑。官方等價分組／分片可使用，但每個必要組均 SHALL 有退出結果與選集覆蓋證據；任何失敗、中止或未執行項目 SHALL 保留且不得稱為完整通過。
