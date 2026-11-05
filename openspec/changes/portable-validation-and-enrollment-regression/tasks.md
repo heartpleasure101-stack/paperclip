@@ -12,12 +12,12 @@
 - [x] 2.3 增加輕量唯讀 preflight 與其測試，覆蓋條件通過、缺項非零退出、隔離工具路徑及自有暫存清理；記錄 Node／Git 能力／Python／當次需要的 Rust，不自動安裝工具或接觸正式資料。
 - [x] 2.4 更新開發文件中隔離驗證、工具覆寫、先跑 blocker 的命令及失敗處理；在乾淨暫存 HOME 執行文件命令證明不需未版本化 monkeypatch 或全域 symlink。
 
-- [ ] 2.5 修正獨立審查 W1/W2：補正事故紀錄（真實下載／執行、TMPDIR log、繼承環境及無法證明事項），強化安裝 guard 涵蓋 command／args／可執行 stdin 與變形安裝命令；以無網路 sentinel 證明執行前攔截，禁止重演真實安裝或繞過刪除限制，經獨立複審確認。
+- [x] 2.5 修正獨立審查 W1/W2：補正事故紀錄（真實下載／執行、TMPDIR log、繼承環境及無法證明事項），強化安裝 guard 涵蓋 command／args／可執行 stdin 與變形安裝命令；以無網路 sentinel 證明執行前攔截，禁止重演真實安裝或繞過刪除限制，經獨立複審確認。
 - [x] 2.6 補齊 preflight 唯讀邊界：Git optional locks、Corepack 禁網路、暫存建立失敗的機讀輸出；相關 fault tests 通過，確認無全域寫入或安裝，記錄實際驗證的 Node 版本限制。
 
 - [x] 2.7 定義並實測可重現的 secret-free 驗證子行程環境：明確 allowlist、自有 HOME／Paperclip 設定、必要工具／cache；以假憑證 sentinel 證明不繼承主機變數，不改父 agent 認證或全域設定，不讀取真實秘密；乾淨環境的 preflight 與 blocker suites 全部通過，文件清楚說明並非 OS sandbox。
 
-- [ ] 2.8 修正第二輪複審的兩項 WARNING：每測試明確登記 executable／shell 形狀與自有 root，拒絕未知路徑命令、shell script、pipeline 或相對下載器；將同等保護套用 server 與 cursor-local 的全部假 sandbox runner，已知安裝只走無網路 stub；以無害字串／記錄 backend 重現四種繞過後證明拒絕，保留真實 fixture 執行及原斷言，再獨立複審。文件明確記錄 fake runner 依賴 clean-env、非 OS sandbox、SSH／Keychain 非隔離範圍及 signal 中止的清理限制，不擅自清理被拒的事故資料。
+- [x] 2.8 修正第二輪複審的兩項 WARNING：每測試明確登記 executable／shell 形狀與自有 root，拒絕未知路徑命令、shell script、pipeline 或相對下載器；將同等保護套用 server 與 cursor-local 的全部假 sandbox runner，已知安裝只走無網路 stub；以無害字串／記錄 backend 重現四種繞過後證明拒絕，保留真實 fixture 執行及原斷言，再獨立複審。文件明確記錄 fake runner 依賴 clean-env、非 OS sandbox、SSH／Keychain 非隔離範圍及 signal 中止的清理限制，不擅自清理被拒的事故資料。
 
 ## 3. GitHub enrollment 因果修復
 

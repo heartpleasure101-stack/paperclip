@@ -385,3 +385,17 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
 28bc317c015f63b42904e28fb91ce38be06fb8e08e807f80664755d552aeef26  server/src/__tests__/cursor-local-adapter-environment.test.ts
 9b7f046089c7b8e659e3a6564b3452e498b5f6d11c88a786706b51211ab662d5  doc/DEVELOPING.md
 ```
+
+## 12. 獨立審查複審結果（HEAD fc3fd4ee6）與防護閉合記錄
+
+獨立 Flash 審查 session 已完成對 HEAD `fc3fd4ee6`（樹 `55f3e64728e2b8910dceaac2d130e5881f17741b`）之第二輪複審（見 `doc/plans/2026-11-05-portable-validation-independent-review.md` 第二次補篇，雜湊 `fc60fe854c2fba00673eaff6c23e73450b4aba2e09b81d3b309a59e7d1b3f557`）：
+
+1. **審查結論：** CRITICAL 0、WARNING 0，R-W1 與 R-W2 全數解除，判定 **GO FOR INTEGRATION**。據此將本 change 之 tasks 2.5 與 2.8 標記完成（累計 13/19 已完成）。
+2. **精確測試數據：**
+   - Vitest 測試總計 **148 passed**（server 66 + cursor-local 15 + adapter-utils 67；0 failed / 0 skipped）。
+   - Preflight 單元測試 12 passed、clean-env 單元測試 7 passed、Preflight blocker 7 項檢查通過。
+   - Muse Python 合約測試：系統 Python 3.9.6 與 Homebrew 3.15.2 各 64 passed。
+3. **「無網路存取」文意澄清：** 審查報告中所述「無網路存取」（without network access）意指**沒有執行任何真實網路下載或安裝程式**（所有安裝請求均由 guard 在記憶體中攔截或 stub 化），**並非指作業系統級的網路完全隔離**。例如 GitHub enrollment 測試仍使用真實本機 loopback HTTP 通訊；本驗證未執行作業系統級的網路封包擷取，亦未宣稱或認證過去事故從無網路暴露。
+4. **邊界與限制保留：** 因果診斷依舊限定於 Node v24.18.0 / undici 7.28.0；歷史事故之三個殘留目錄（兩個 `probe-*` 與 `cursor-agent-logs-502`）依舊保留待擁有者處置；`clean-env` 是環境變數清理而非 OS 沙箱。
+5. **後續整合關卡（Next Integration Gates）：** tasks 4 與 5（包含跨分支 merge、官方 dry-run 完整選集與各分組驗收、正式 PR 更新與驗收交付）仍保持未開始（pending），待下一階段整合流程進行。
+
