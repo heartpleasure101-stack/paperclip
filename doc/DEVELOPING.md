@@ -1070,6 +1070,74 @@ or timeouts. An explicit `PAPERCLIP_TEST_DATABASE_URL` retains the original
 single, serial database path. Explicit `--group` invocations and CI shard routing
 are unchanged.
 
+### Isolated validation on a developer machine
+
+Validate in a local worktree (not a network share such as SMB), with Node 24 first on
+`PATH`, and run the read-only preflight before any expensive step. It reports the path,
+source and version of every tool it checks and exits non-zero before the long run when
+a tool the chosen stage needs is missing. It installs nothing, never connects to a
+database, and prints database URLs without user, password or query.
+
+```sh
+export PATH=/path/to/node24/bin:$PATH
+pnpm install --frozen-lockfile
+node scripts/validation-preflight.mjs --stage blockers   # node, pnpm, git, python
+node scripts/validation-preflight.mjs --stage build      # node, pnpm, git, rust
+node scripts/validation-preflight.mjs --stage full --json  # all of them, machine readable
+```
+
+Exit codes: `0` ready, `1` a required check failed (`failed` lists the ids), `2` bad
+arguments. Checks that are not required for the stage show as `SKIP`; `WARN` entries
+(for example `GIT_EDITOR`, a set `DATABASE_URL`, a network filesystem) never fail the run.
+
+- **Git**: the nested-clone and rehome tests feed `--not` to `git rev-list --stdin`. The
+  preflight probes that in a private temporary repository. Apple Git 2.39.3 fails with
+  `options not supported in --stdin mode`; Git 2.56.0 passes.
+- **Python**: `python3` must be 3.9 or newer. The Muse contract test starts `python3`
+  from `PATH`.
+- **Rust**: only the `build` and `full` stages. The version must match
+  `packages/paperclip-runner/rust-toolchain.toml`. Probes run with `RUSTUP_AUTO_INSTALL=0`
+  so a rustup shim cannot download a toolchain.
+
+Tools do not have to be on the shared `PATH`. Pass an explicit path with `--git`,
+`--python`, `--pnpm`, `--cargo` or `--rustc`, or set `PAPERCLIP_PREFLIGHT_GIT` (and the
+matching `_PYTHON`, `_PNPM`, `_CARGO`, `_RUSTC`). The tests resolve tools from `PATH`, so
+the report adds a `prepend <dir> to PATH` hint for every tool that came from a flag or
+variable. An isolated rustup also needs its own `CARGO_HOME` and `RUSTUP_HOME`.
+
+After the preflight passes, run the known environment blockers before anything slower.
+They are cheap and cover the Cursor sandbox, Muse and GitHub enrollment fixtures:
+
+```sh
+pnpm run test:validation-preflight
+pnpm --filter @paperclipai/plugin-sdk build   # server tests import its built entry
+cd server && pnpm exec vitest run \
+  src/__tests__/cursor-local-execute.test.ts \
+  src/__tests__/muse-client-contract.test.ts \
+  src/__tests__/github-connection-enrollment-work.test.ts \
+  src/__tests__/fake-clock-io.test.ts
+```
+
+If one of them fails, fix it before starting `pnpm -r typecheck`, `pnpm build` or the
+full suites; those take hours and will fail for the same reason.
+
+Fixture rules that keep these tests independent of the host:
+
+- Fake CLIs that start with `#!/usr/bin/env node` get their runtime from their own fake
+  `HOME` (`.local/bin/node` linked to `process.execPath`). Do not widen the production
+  sandbox `PATH` (`defaultPathForPlatform`) or link Node into `/usr/local/bin` to make a
+  fixture pass.
+- A mocked `urllib.error.HTTPError` needs a real, closable body (`io.BytesIO`). `fp=None`
+  fails on Python 3.9 when the error is closed.
+- When a test fakes `setTimeout`/`Date` while real loopback I/O runs, wait with
+  `settleDueTimers()` from `server/src/__tests__/helpers/fake-clock-io.ts` instead of a
+  bare `setImmediate`. Node's HTTP client schedules zero-delay timers of its own; the
+  helper runs only timers that are due now and never moves virtual time. Do not make the
+  wait longer to hide a stalled request.
+
+Do not point `DATABASE_URL` or `PAPERCLIP_TEST_DATABASE_URL` at a production database, and
+unset `GIT_EDITOR` (a value such as `false` breaks the rebase fixtures).
+
 For interactive Vitest watch mode use:
 
 ```sh

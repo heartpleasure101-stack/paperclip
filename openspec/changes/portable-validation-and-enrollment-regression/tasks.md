@@ -2,21 +2,21 @@
 
 ## 1. 獨立修復分支與證據基線
 
-- [ ] 1.1 從 master 建立獨立修復 branch／本機工作樹，攜帶本 agent 已撰寫的 change 與必要 OpenSpec 設定；提交規格、push 並於使用者 fork 建立 base=master 的 draft PR，依 repo PR template 填寫，記錄 URL 與 base SHA。
-- [ ] 1.2 讀取實作範圍 instructions，於本機隔離目錄重現 Cursor、Muse、enrollment 已知失敗並記錄工具、退出碼、版本／tree、原斷言及使用的測試選集；不啟動全量流程。
+- [x] 1.1 從 master 建立獨立修復 branch／本機工作樹，攜帶本 agent 已撰寫的 change 與必要 OpenSpec 設定；提交規格、push 並於使用者 fork 建立 base=master 的 draft PR，依 repo PR template 填寫，記錄 URL 與 base SHA。
+- [x] 1.2 讀取實作範圍 instructions，於本機隔離目錄重現 Cursor、Muse、enrollment 已知失敗並記錄工具、退出碼、版本／tree、原斷言及使用的測試選集；不啟動全量流程。
 
 ## 2. 自含測試替身與前置檢查
 
-- [ ] 2.1 修正 Cursor fake sandbox runtime 配置；以刻意排除主機 Node 路徑的環境驗證原 5 案例及缺失命令可偵測，保留 command、PATH 與提示斷言；確認正式 adapter/server-utils PATH 無變更，無網路安裝。
-- [ ] 2.2 修正 Muse fixture 的模擬 HTTPError 可關閉資源；用 Python 3.9 與可用較新版本執行合約案例，檢查已發布 assets／pins 位元組未變，所有原斷言仍成立。
-- [ ] 2.3 增加輕量唯讀 preflight 與其測試，覆蓋條件通過、缺項非零退出、隔離工具路徑及自有暫存清理；記錄 Node／Git 能力／Python／當次需要的 Rust，不自動安裝工具或接觸正式資料。
-- [ ] 2.4 更新開發文件中隔離驗證、工具覆寫、先跑 blocker 的命令及失敗處理；在乾淨暫存 HOME 執行文件命令證明不需未版本化 monkeypatch 或全域 symlink。
+- [x] 2.1 修正 Cursor fake sandbox runtime 配置；以刻意排除主機 Node 路徑的環境驗證原 5 案例及缺失命令可偵測，保留 command、PATH 與提示斷言；確認正式 adapter/server-utils PATH 無變更，無網路安裝。
+- [x] 2.2 修正 Muse fixture 的模擬 HTTPError 可關閉資源；用 Python 3.9 與可用較新版本執行合約案例，檢查已發布 assets／pins 位元組未變，所有原斷言仍成立。
+- [x] 2.3 增加輕量唯讀 preflight 與其測試，覆蓋條件通過、缺項非零退出、隔離工具路徑及自有暫存清理；記錄 Node／Git 能力／Python／當次需要的 Rust，不自動安裝工具或接觸正式資料。
+- [x] 2.4 更新開發文件中隔離驗證、工具覆寫、先跑 blocker 的命令及失敗處理；在乾淨暫存 HOME 執行文件命令證明不需未版本化 monkeypatch 或全域 symlink。
 
 ## 3. GitHub enrollment 因果修復
 
-- [ ] 3.1 在隔離快照取得 ack=0 的因果證據（工作者 poll 結果／errors、HTTP 階段、delivery 狀態、虛擬時鐘／真實 I/O）；有界證明是哪一階段未完成，記錄 real-timer 或受控延遲對照，禁止只延長等待。
-- [ ] 3.2 依設計決策修復正確擁有者：test-only 時鐘協調／fixture，或經真實依賴證明有缺陷的最小 event/enrollment 服務；以失敗前後與受控故障證明修正生效，保留所有簽名、DB、身分替換、ack 及 25 分鐘安靜期斷言。
-- [ ] 3.3 執行 enrollment 原案例多次及相關 connection-work／connector 安全回歸，附明確命令與輸出；將根因、採取／未採取方案、原斷言保留與限制記入有日期的 doc/plans 驗證文件。
+- [x] 3.1 在隔離快照取得 ack=0 的因果證據（工作者 poll 結果／errors、HTTP 階段、delivery 狀態、虛擬時鐘／真實 I/O）；有界證明是哪一階段未完成，記錄 real-timer 或受控延遲對照，禁止只延長等待。
+- [x] 3.2 依設計決策修復正確擁有者：test-only 時鐘協調／fixture，或經真實依賴證明有缺陷的最小 event/enrollment 服務；以失敗前後與受控故障證明修正生效，保留所有簽名、DB、身分替換、ack 及 25 分鐘安靜期斷言。
+- [x] 3.3 執行 enrollment 原案例多次及相關 connection-work／connector 安全回歸，附明確命令與輸出；將根因、採取／未採取方案、原斷言保留與限制記入有日期的 doc/plans 驗證文件。
 
 ## 4. 整合與完整覆蓋驗證
 
