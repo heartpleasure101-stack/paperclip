@@ -625,5 +625,124 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
 - **獨立驗收門檻（Gate 5）判定：NO-GO**。
   - 理由：全量測試組未達全數 exit 0，`server/src/__tests__/vitest-chat-shards.test.ts` 在受控無網路環境下暴露 Corepack 離線夾具缺陷。須由後續專屬變更依規範補正該測試 fixture 後方可重啟 Gate 4.4 / 5。
 
+## 16. Phase 06 離線套件管理器解析診斷、修復與有界對照驗證（task 2.9）
+
+### 16.1 根因精確診斷與 Corepack 程式碼調查
+
+針對 Phase 06 中 `server/src/__tests__/vitest-chat-shards.test.ts:44` 暴露之離線 Corepack 錯誤，查核 Node 24 prefix（`/Users/Hermes/.nvm/versions/node/v24.18.0/lib/node_modules/corepack`）之 Corepack v0.35.0 原始碼：
+1. **未宣告專案的解析路徑：** 在 `corepack.cjs` 中，當子程序執行 `pnpm` 且當前專案目錄的 `package.json` 未定義 `packageManager` 欄位（例如測試動態建立之 `{ private: true }` 夾具專案）時，Corepack 進入 `Engine.prototype.getDefaultVersion("pnpm")`。
+2. **缺省 LastKnownGood 之行為：** 該函式先讀取 `COREPACK_HOME/lastKnownGood.json`。若該檔案不存在（或未登記 `pnpm`），且環境變數未設置 `COREPACK_DEFAULT_TO_LATEST=0`，Corepack 預設會調用 `fetchLatestStableVersion2` 試圖從遠端 npm registry（`https://registry.npmjs.org/pnpm`）查詢最新穩定版本。
+3. **無網路下的非零退出：** 由於 clean-env 配置了 `COREPACK_ENABLE_NETWORK="0"`，網路請求被 Corepack 內部攔截並拋出 UsageError：
+   `Network access disabled by the environment; can't reach npm repository https://registry.npmjs.org`。
+   導致 `pnpm exec vitest list` 收集失敗（exit 1），進而引發 `vitest-chat-shards.test.ts` 斷言失敗。
+4. **既有快取啟用能力：** 調查同時證實，Corepack 內建之公開指令 `corepack prepare pnpm@9.15.4 --activate` 在 `COREPACK_ENABLE_NETWORK="0"` 下執行時，若快取目錄（`COREPACK_HOME/v1/pnpm/9.15.4`）已存在該版本，`resolveDescriptor` 與 `ensurePackageManager` 直接使用本地快取，並透過 `activatePackageManager` 建立 `COREPACK_HOME/lastKnownGood.json`（內容寫入 `{"pnpm": "9.15.4"}`），全程不需要也不會發起任何外部網路請求。
+
+### 16.2 有界因果對照實驗（自有複製快取 `/private/tmp/pv-corepack-triage`）
+
+在自有複製快取 `/private/tmp/pv-corepack-triage` 中建立嚴格因果對照組，透過 `scripts/validation-clean-env.mjs` 執行驗證（`COREPACK_ENABLE_NETWORK="0"`，`CI="1"`）：
+
+1. **對照組 1a（修復前已宣告專案）：**
+   - 專案：`/private/tmp/pv-corepack-triage/declared-project`（`packageManager: "pnpm@9.15.4"`）。
+   - 執行：`pnpm --version`。
+   - 結果：**Exit 0**，輸出 `9.15.4`。證明已宣告版本的專案在未啟用 LastKnownGood 前即可完全離線執行。
+2. **對照組 1b（修復前未宣告微型專案）：**
+   - 專案：`/private/tmp/pv-corepack-triage/unmanaged-project`（`{ private: true }`，無 `packageManager`）。
+   - 執行：`pnpm --version`。
+   - 結果：**Exit 1**，輸出 `Network access disabled by the environment; can't reach npm repository https://registry.npmjs.org`。精確重現 Phase 06 失敗。
+3. **對照組 2（公開 CLI 啟用已快取版本）：**
+   - 執行：在自有 COREPACK_HOME 內執行 `/Users/Hermes/.nvm/versions/node/v24.18.0/bin/node scripts/validation-clean-env.mjs ... -- corepack prepare pnpm@9.15.4 --activate`。
+   - 結果：**Exit 0**，輸出 `Preparing pnpm@9.15.4 for immediate activation...`。
+   - 檔案變更核對：僅新增 `/private/tmp/pv-corepack-triage/corepack-home/lastKnownGood.json`（內容：`{"pnpm": "9.15.4"}`）。
+   - 二進位檔雜湊核對：
+     - `bin/pnpm.cjs`: `98e6b99a881d64a1cc982c3e60aa260bf02160386b12e74475e06486dc74b090`（與修復前完全一致）
+     - `dist/pnpm.cjs`: `4c319da726786d5535aef95fa78ec5e24f1079382da878a35fa5dd044a7bab96`（與修復前完全一致）
+     - 主機全域及 Node 24 prefix 完全未變動。
+4. **對照組 2b（啟用後未宣告微型專案）：**
+   - 專案：`/private/tmp/pv-corepack-triage/unmanaged-project`。
+   - 執行：`pnpm --version`。
+   - 結果：**Exit 0**，輸出 `9.15.4`。離線解析成功。
+5. **對照組 3（空快取 Canary 負向測試）：**
+   - 快取：`/private/tmp/pv-corepack-triage/empty-corepack-home`（完全空白目錄）。
+   - 執行：`corepack prepare pnpm@9.15.4 --activate`（`COREPACK_ENABLE_NETWORK="0"`）。
+   - 結果：**Exit 1**，輸出 `Usage Error: Network access disabled by the environment; can't reach https://registry.npmjs.org/pnpm/-/pnpm-9.15.4.tgz`。證明當快取缺失時，Corepack 在禁網環境下會安全且確定地非零退出，不會偷渡網路下載或隱瞞缺失。
+
+### 16.3 正式隔離快取準備（Canonical Private Cache）
+
+在對照組證明有效且安全後，以相同公開標準指令準備正式隔離快取：
+- 目標快取：`/private/tmp/pv-clean-tools/corepack`。
+- 執行命令：
+  ```sh
+  /Users/Hermes/.nvm/versions/node/v24.18.0/bin/node scripts/validation-clean-env.mjs \
+    --bin /private/tmp/pi-dedup-git-toolchain/bin \
+    --bin /private/tmp/pi-dedup-rust-toolchain/cargo/bin \
+    --bin /usr/bin --bin /opt/homebrew/bin \
+    --set COREPACK_HOME=/private/tmp/pv-clean-tools/corepack \
+    --set CARGO_HOME=/private/tmp/pi-dedup-rust-toolchain/cargo \
+    --set RUSTUP_HOME=/private/tmp/pi-dedup-rust-toolchain/rustup \
+    --set CARGO_NET_OFFLINE=true --set CI=1 \
+    -- corepack prepare pnpm@9.15.4 --activate
+  ```
+- 成果驗收：
+  - 新增 `/private/tmp/pv-clean-tools/corepack/lastKnownGood.json`（內容 `{"pnpm": "9.15.4"}`）。
+  - 快取之 pnpm 二進位檔案（`bin/pnpm.cjs`、`dist/pnpm.cjs`）雜湊完全不變。
+  - 凍結快照源碼（`/private/tmp/paperclip-portable-validation`）維持零修改。
+
+### 16.4 聚焦測試執行與驗證
+
+在不可變凍結快照（HEAD `cc56bbcd30a7de1a78a92b108dba772d3c02a500`）上，透過 clean-env 執行聚焦測試：
+1. **聚焦測試檔案：** `server/src/__tests__/vitest-chat-shards.test.ts`
+   - 執行命令：
+     ```sh
+     /Users/Hermes/.nvm/versions/node/v24.18.0/bin/node /private/tmp/paperclip-portable-validation/scripts/validation-clean-env.mjs \
+       --bin /private/tmp/pi-dedup-git-toolchain/bin \
+       --bin /private/tmp/pi-dedup-rust-toolchain/cargo/bin \
+       --bin /usr/bin --bin /opt/homebrew/bin \
+       --set COREPACK_HOME=/private/tmp/pv-clean-tools/corepack \
+       --set CARGO_HOME=/private/tmp/pi-dedup-rust-toolchain/cargo \
+       --set RUSTUP_HOME=/private/tmp/pi-dedup-rust-toolchain/rustup \
+       --set CARGO_NET_OFFLINE=true --set CI=1 \
+       -- /bin/sh -c "cd /private/tmp/paperclip-portable-validation && pnpm --filter @paperclipai/server exec vitest run src/__tests__/vitest-chat-shards.test.ts"
+     ```
+   - 執行結果：**PASSED (exit 0)**，耗時 6.43s。
+   - 完整保留並驗證原 7 個 exact-once trace 案例（`["a", "b", "c", "d", "nested-first", "nested-second", "top"]`）與故意失敗傳遞斷言，既有 45s/120s 逾時界限完全未放寬。
+2. **完整 Preflight 檢驗：**
+   - 執行命令：`node scripts/validation-preflight.mjs --stage full`
+   - 執行結果：**PASSED (exit 0)**。所有 10 項前置檢查（Node, pnpm, git, git-rev-list, python, rustc, cargo, rustfmt, fs, snapshot）全數通過。
+3. **環境衛生與 Preflight 單元測試（12+7 = 19 tests）：**
+   - 執行命令：`node --test scripts/validation-clean-env.test.mjs scripts/validation-preflight.test.mjs`
+   - 執行結果：**19 passed, 0 failed**。
+
+### 16.5 前 5 個已通過階段保留評估（Retention Proposal）
+
+- **快照源碼與工具一致性：** 凍結快照 HEAD 完全維持 `cc56bbcd30a7de1a78a92b108dba772d3c02a500`，Tree 為 `37295d5b275b63408b4c9d57ad9c76382c1f18e7`，Node/Git/Rust 工具鏈與 pnpm@9.15.4 二進位檔雜湊與 Phase 01–05 執行時 100% 相同。
+- **無未宣告專案依賴性：** 經原始碼與測試盤點，Phase 01–03（chat shards 0–2）僅測試 `chat-channels.integration.test.ts` 與 `chat-channel-sync.test.ts`；Phase 04–05 均在根專案已明確宣告 `packageManager: pnpm@9.15.4` 之情境下運行。若前 5 階段曾有任何未宣告專案解析，早已在無網路環境下失敗；其成功取得 exit 0 證明前 5 階段完全未受 Corepack 缺省解析影響。
+- **跳過案例核對：** Phase 01–03 之 9190 skipped tests 確為 Vitest chat line-filtering 排除之測試，並非遺漏或缺失；Phase 04–05 之 skips 均為既有平台或服務旗標跳過。
+- **保留建議：** 建議保留 Phase 01–05 之通過記錄，重啟時由 Phase 06 開始執行。此項建議須待獨立複審者審查核可後方得實施。
+
+### 16.6 運維執行器強化（Ops Runner Improvement）
+
+為防止後續長流程再度因終端機日誌輸出龐大導致記憶體或顯示異常，並確保每輪嘗試具備獨立日誌追蹤，已完成運維腳本改進：
+1. **備份原始執行器與記錄：**
+   - 原始腳本備份為 `/private/tmp/pv-full/run-phases.mjs.orig`（SHA-256: `25290d7ab437c6c0ec50b0c220d94b0ea444551e8b00240ef372410fd0cee3f1`）。
+   - Attempt 1 完整記錄（日誌、manifest）備份於 `/private/tmp/pv-full/attempt1/`。
+2. **改進後執行器 `/private/tmp/pv-full/run-phases.mjs`（SHA-256: `102575ac776690d38736c145531615a79517da2149393c354e20c42ba01ebea8`）：**
+   - **分輪獨立記錄：** 完整寫入所有 child raw bytes 至按次編號日誌檔（`${phase.id}.attempt${N}.log`），並更新 phase manifest 中的 `attempts` 歷程。
+   - **控制台輸出優化：** 抑制向 agent console 重複輸出數十 MB 的子程序原始 log，僅顯示階段標記與每 30 秒定期進度心跳（含已耗時與累積 log 大小）。
+   - **串流關閉同步：** 子行程 close 後等待 `logStream.end()` 的 `finish` 事件完成，徹底杜絕讀取解析未寫入完成日誌的 race condition。
+   - **信號與退出碼捕捉：** 精確捕捉退出碼與 signal（如 128 + signal）。
+   - **源碼不可變性雙向防護：** 在每個階段啟動前與結束後，自動執行 `checkFrozenCode`，核對 `git status --porcelain` 與 `git rev-parse HEAD`，若源碼被意外更動即刻中斷。
+   - **單元測試驗證：** 經本機無害 fake child 驗證，狀態檢查、日誌解析與歷程記錄均運作正常。
+
+### 16.7 殘留行程盤點（Process Residuals Inventory）
+
+經全系統 process inventory 檢驗（搜尋包含 `paperclip-portable-validation`、`pv-full`、`pc-shards` 關鍵字之行程），除目前正在執行之 agy agent 主行程（PID 2445）外，無任何前次全量執行或測試遺留的 background runner 行程或洩漏之 loopback sockets。
+
+### 16.8 任務狀態更新
+
+- **task 2.9：標記完成，待獨立複審（Pending Independent Review）**：已完成有界因果對照、公開 CLI 快取配置、Canary 負向測試、聚焦測試通過，且未修改任何正式 source 或測試。
+- **task 4.2：重新標記完成，待獨立複審（Pending Independent Review）**：Preflight full、環境衛生單元測試、Phase 06 暴露之離線 blocker 均已全數通過。
+- **tasks 4.4、5.1、5.2：維持未完成（`[ ]`）**：在獨立複審者審查認可前，不重啟全量套件流程。
+
+
 
 

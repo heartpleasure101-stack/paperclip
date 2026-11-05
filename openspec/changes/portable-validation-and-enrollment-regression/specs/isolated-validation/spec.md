@@ -42,6 +42,10 @@
 - **WHEN** 明確指定暫存或既有工具路徑且能力檢查通過
 - **THEN** 輸出實際路徑、版本與檢查結果，不要求將工具安裝進主機共用目錄
 
+#### Scenario: 離線暫存專案的套件管理器解析
+- **WHEN** 測試在未宣告 packageManager 的自有暫存專案中呼叫 pnpm，且 Corepack 網路已關閉
+- **THEN** 事先明確準備的隔離快取／版本配置能使用既有的專案套件管理器，或在長流程前明確失敗；不得偷偷查詢 registry、下載新工具或修改主機全域預設。唯讀檢查本身不得代為啟用或安裝工具。
+
 ### Requirement: Secret-free acceptance subprocesses
 
 完整驗證的子行程 SHALL 只接收明確列出的工具與測試設定，以及測試自身產生的假資料；SHALL NOT 繼承主機的 provider/API 金鑰或個人 HOME 設定。此隔離不得變更父 agent 的授權或主機全域設定，亦不得宣稱等同作業系統 sandbox。

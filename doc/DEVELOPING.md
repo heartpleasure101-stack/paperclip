@@ -1197,7 +1197,23 @@ cd server && $CLEAN -- pnpm exec vitest run \
 Declare every tool directory with `--bin` (Git, Python, Rust, pnpm); a tool outside the
 declared directories is "not found" rather than silently taken from your profile. A cached
 pnpm needs an explicit `COREPACK_HOME` (copy the pinned version into an isolated directory);
-the environment never lets Corepack download. `--set NAME=VALUE` and `--pass NAME` forward
+the environment never lets Corepack download. If tests create unmanaged temporary projects
+without a `packageManager` field (such as `vitest-chat-shards.test.ts`), Corepack attempts
+to query the npm registry for the latest release unless a LastKnownGood default is recorded.
+To prepare an isolated offline cache without network access or modifying host/Node global prefixes:
+
+```sh
+# Prepare the isolated cache default using already cached runtime files (offline, network=0)
+CLEAN="node $PWD/scripts/validation-clean-env.mjs \
+  --bin /path/to/git-2.56/bin \
+  --set COREPACK_HOME=/path/to/isolated/corepack-cache"
+$CLEAN -- corepack prepare pnpm@9.15.4 --activate
+
+# Verify the offline default generates lastKnownGood.json without modifying cached binary hashes:
+test -f /path/to/isolated/corepack-cache/lastKnownGood.json
+```
+
+`--set NAME=VALUE` and `--pass NAME` forward
 extra variables you choose, but names that look like credentials (`KEY`, `TOKEN`, `SECRET`,
 `PASSWORD`, `AUTH`, ...), `NODE_OPTIONS`, `DATABASE_URL` and `DYLD_*` are refused. Use
 `--describe` to print the planned variables without running anything.
