@@ -34,8 +34,8 @@
 ## 4. 整合與完整覆蓋驗證
 
 - [x] 4.1 將修復分支以一般 merge commit 整合進原摘要 branch，記錄兩個 PR、merge SHA 與修復／Pi source tree；只做本機 merge 與普通 push，不 merge GitHub PR、不 force-push。
-- [ ] 4.2 在不可變整合快照上通過 preflight、全部已知 blocker 及摘要去重相關回歸，再執行 typecheck/build；每項附退出碼，未通過則不跑昂貴全量。
-- [ ] 4.3 用官方 dry-run 取得完整入口及分組／分片 inventory，證明 chat、general excluding chat/native、native-runner、workspaces-a/b/c、serialized 無遺漏；依本機資源限制並行並保存實際選集。
+- [x] 4.2 在不可變整合快照上通過 preflight、全部已知 blocker 及摘要去重相關回歸，再執行 typecheck/build；每項附退出碼，未通過則不跑昂貴全量。
+- [x] 4.3 用官方 dry-run 取得完整入口及分組／分片 inventory，證明 chat、general excluding chat/native、native-runner、workspaces-a/b/c、serialized 無遺漏；依本機資源限制並行並保存實際選集。
 - [ ] 4.4 執行全部官方等價測試組，每組／shard 皆保留命令、退出碼、tests／skips、版本及 log；確認每個必要組 exit=0、無測試替身修補檔滲入或程式碼變動，保留先前失敗。任何未跑／被停止／失敗不得標記完成。
 
 ## 5. 獨立驗證與可審查交付

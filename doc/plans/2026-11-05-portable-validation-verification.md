@@ -909,3 +909,115 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
   - **task 4.4：`[ ]` 待執行（Pending）**。
   - **task 5.1 / 5.2：`[ ]` 待獨立驗收交付（Pending）**。
 - **凍結快照狀態：** `/private/tmp/paperclip-portable-validation` 完全維持在 HEAD `cc56bbcd30a7de1a78a92b108dba772d3c02a500`、Tree `37295d5b275b63408b4c9d57ad9c76382c1f18e7`，100% 原始碼乾淨無污染。
+
+
+---
+
+## 19. 負載測試因果修復獨立審查、整合快照等價性與 Preflight 驗證 (Tasks 2.10, 2.11, 4.2, 4.3)
+
+**執行日期：** 2026-11-05  
+**執行角色：** agy Gemini 3.8 Flash High（原生工具整合與驗證 agent）  
+**修復分支：** `fix/portable-validation-baseline`（HEAD `fd7de49ed`）  
+**原摘要分支：** `fix/pi-single-prompt-summary-dedup`  
+**整合 Commit：** `3f1eb1b7b364893141818d25569d60206ea36ccb`  
+**整合 Tree：** `4cf612e25dfcaca94cbfd7539922b9fe4a77cd1f`  
+**凍結驗證工作樹：** `/private/tmp/pv-load-fixture-fix`  
+**保留基準快照：** `/private/tmp/paperclip-portable-validation`（HEAD `cc56bbcd30a7`，保持唯讀不動）
+
+---
+
+### 19.1 Task 2.10 獨立診斷審查判定 (Reviewer Verdict: GO)
+
+由全新獨立 agy session 審查 Task 2.10 有界診斷報告（`doc/plans/2026-11-05-load-fixture-independent-review.md`，SHA-256: `372ee868a346cb2b7150a559d46df1d04ce9c78f6d82ccd4c9b8b7e7151fb8fa`）：
+1. **診斷真實性確認：** 獨立實測確認單檔單獨執行（3 次結果分別為 403、412、399 joins）精確重現 macOS 核心 `kern.ipc.somaxconn = 128` 滿溢拒絕（`ECONNRESET`），否定「單純並行干擾」假說。
+2. **安全規範遵守：** 實作者未放寬 15 秒／60 秒時限、未弱化 500 請求／498 joins / 2 scans / 500 個 200 回應斷言、未修改產品源碼、未變更系統全域 sysctl，並正確拒絕偽解法 `maxSockets: 100`（避免 scanGate 關閉時在途請求被限縮至 100）。
+3. **任務狀態更新：** 依據審查 GO 結論，Task 2.10 正式標記為完成（`[x] 2.10`）。
+
+---
+
+### 19.2 Task 2.11 測試端 TCP 有界連線準備修復核驗
+
+1. **架構設計與邊界：**
+   - 僅修改 **單一** 測試檔案：`server/src/__tests__/file-resources-git-scan-load.test.ts`（SHA-256: `93234ee1cd3efd738cc11198cc48a3b027c3505f252cbf8fb490317004cab24c`）。
+   - 透過內部 helper `admitRequestsInBatches` 以 25 連線為小批次，監聽底層 `server.on("connection")` 事件完成握手，絕不提前等待 HTTP 回應或釋放 `scanGate`。
+   - 所有 500 請求進入路由並抵達 `scheduler.run()`，在途數達 500 且完成數嚴格為 0 時進行 25 次 health 延遲測量（實測 p99 介於 3.02ms - 3.45ms，遠低於 250ms 門檻）。
+   - 統一 15 秒 admission deadline 從發出第 1 個請求前（含批次準備）起算，逾時動態扣減，總限 60 秒不變。
+2. **負向控制與錯誤清理：**
+   - 新增 2 個負向控制案例：逾時清理與早期用戶端拒絕清理；經變異測試確認 fail-stop 與 socket/listener 零洩漏。
+   - 測試總數由 4 案例增為 6 案例（4 原案例 + 2 負向案例）。
+3. **獨立連跑驗證：**
+   - 獨立審查連續 3 次聚焦執行全部通過（exit 0，3.17s / 3.19s / 3.28s）。
+   - 本任務要求待 Phase 07 整組通過後正式關閉（目前保留 `[ ] 2.11`）。
+
+---
+
+### 19.3 整合 Commit 與源碼等價性證明 (Tasks 4.1 & Reuse Assessment)
+
+1. **整合 Commit 拓撲：**
+   - Merge Commit: `3f1eb1b7b364893141818d25569d60206ea36ccb`
+   - Parents: `86da7f41ff32b8091c4d68293518b0b40156c169` (摘要分支) + `fd7de49edd4f83c5a5daa3e931ef58c7807d9131` (baseline 修復分支)
+   - 本機 `--no-ff` merge，無 GitHub PR merge，無 force push。
+2. **源碼逐 Byte 等價核驗（對照基準快照 `cc56bbcd3`）：**
+   - `git diff cc56bbcd3..3f1eb1b7b` 僅包含 9 個檔案變更：
+     - 文件與 OpenSpec 規範檔：8 檔
+     - 程式碼／測試檔：**僅 1 檔**（`server/src/__tests__/file-resources-git-scan-load.test.ts`）
+   - **產品原始碼：** `server/src/routes/`, `server/src/services/`, `server/src/middleware/`, `packages/`, `cli/`, `ui/` **0 差異（100% byte-identical）**。
+   - **5 個 Pi 功能檔案 SHA-256 雜湊完全相符：**
+     - `packages/adapter-utils/src/continuation-summary-dedup.test.ts`: `2a516bbf2461b5f3eeb1cc9b0e7653d8c51c2677c157b32e1ba9b6be4d4101e6`
+     - `packages/adapter-utils/src/server-utils.ts`: `417b4066d33ffe1b77982861fa8621f706acac5efab1c6e0a5a23b5e672a8b9d`
+     - `packages/adapters/opencode-local/src/server/execute.test.ts`: `222ace23dcfe3edc282324fd4f422a07c627e6962dcaa3992e3991301a82bc85`
+     - `packages/adapters/pi-local/src/server/execute.summary-dedup.test.ts`: `d55586be6d5a24a730661cedf37cdd7500a6957977df463129944e05a8f04a33`
+     - `packages/adapters/pi-local/src/server/execute.ts`: `036a23cdb8c0ab34f2e99a270647a636fb066c229ea957d75ed4e631145cef20`
+   - **反向依賴掃描：** 確認全 repo **0** 個檔案讀取或依賴 `file-resources-git-scan-load.test.ts`。
+3. **Phases 01–06 證據延續核准：**
+   - 經上述逐 byte 等價性核驗，確認 Phases 01–06 涵蓋之 SUT、工具、配置與測試檔皆未受改動。
+   - 正式核准重用 Phases 01–06 於 commit `cc56bbcd3` 之執行證據，明確記錄原始 commit，不偽稱在新 commit 實跑。
+   - Phase 07 因包含變更檔案，強制在新整合快照全量重跑；Phases 08–15 依序在新快照執行。
+
+---
+
+### 19.4 新快照環境準備與 Preflight 驗證 (Task 4.2: PASSED)
+
+在工作樹 `/private/tmp/pv-load-fixture-fix` 分離切換至 `3f1eb1b7b364`，使用 APFS copy-on-write (`cp -cR`) 複製 `node_modules` 與 `dist`，無任何網路下載，無污染舊凍結快照。
+
+在 Clean-env 隔離環境（Node 24.18.0、Git 2.56.0、Rust 1.97.1、Corepack 9.15.4、CARGO_NET_OFFLINE=true、CI=1、獨立暫存 HOME）下執行完整 Preflight：
+
+| 項目 | 執行指令 | 退出碼 | 結果摘要 |
+|---|---|---|---|
+| **全量 Preflight** | `scripts/validation-preflight.mjs --stage full` | **0** | 10 項前置檢查全數 PASS（Node、pnpm、git、git-rev-list、python、rustc、cargo、rustfmt、filesystem、snapshot 零未提交） |
+| **隔離環境單元測試** | `node --test scripts/validation-clean-env.test.mjs scripts/validation-preflight.test.mjs` | **0** | 19 passed, 0 failed |
+| **已知快取自測 1** | `vitest run src/__tests__/vitest-chat-shards.test.ts` | **0** | 1 passed (1), 6.45s (7 個 trace cases 恰好一次) |
+| **新負載測試全檔** | `vitest run src/__tests__/file-resources-git-scan-load.test.ts` | **0** | 6 passed (6), 3.36s (500 requests, 498 joins, 2 scans, p99=3.11ms) |
+| **Server 範圍型別檢查** | `pnpm exec tsc --noEmit` in `server/` | **0** | 嚴格編譯 0 errors 通過 |
+| **模組邊界檢查** | `node scripts/check-module-boundaries.mjs` | **0** | Feature module boundary check passed |
+| **建置資產完整性** | `node scripts/run-typecheck-build-gaps.mjs --runtime-assets-only` | **0** | 15/15 server runtime assets present in dist |
+
+依據上述全數 exit 0 結果，Task 4.2 正式標記為完成（`[x] 4.2`）。
+
+---
+
+### 19.5 官方 Dry-Run Inventory 核驗 (Task 4.3: PASSED)
+
+透過 `scripts/run-vitest-stable.mjs` 執行官方 dry-run，產出完整選集清冊：
+- **Non-server Projects：** 恰好 20 個專案（`workspaces-a`: 2、`workspaces-b`: 17、`workspaces-c`: 1）。
+- **General Server Tests：** 1433 個檔案（1424 excluding chat/native + 9 native-runner）。
+- **Chat Tests：** 1 個 integration test（sharded across 3 shards / 6 sub-shards）。
+- **Serialized Tests：** 166 個檔案（sharded across 4 shards）。
+- **測試案例淨增量：** 測試檔案數完全相同，僅在負載測試檔內部新增 2 個負向案例（+2 tests, 0 files）。
+
+選集聯集無遺漏、無重疊，Task 4.3 正式標記為完成（`[x] 4.3`）。
+
+---
+
+### 19.6 Manifest 備份與遷移狀態
+
+1. **Attempt 1 備份存檔：**
+   - 舊 `phase-manifest.json` 與 Attempt 1 日誌備份於 `/private/tmp/pv-full/attempt1/`。
+   - Phase 07 Attempt 1 失敗日誌 SHA-256：`c2dfd87f12fb903b4e11254504e4db686616dd92a3f5ce50cf3476ab55caca39`。
+2. **遷移後 Live / Mirror Manifests：**
+   - 全域設定：`repoRoot` 指向 `/private/tmp/pv-load-fixture-fix`，`git.head` 指向 `3f1eb1b7b364893141818d25569d60206ea36ccb`，`git.tree` 指向 `4cf612e25dfcaca94cbfd7539922b9fe4a77cd1f`。
+   - `sourceFingerprints` 已更新新負載測試檔雜湊。
+   - Phases 01–06：保持 `PASSED`，明確記錄 `actualSnapshotCommit: cc56bbcd30a7de1a78a92b108dba772d3c02a500` 與等價證明路徑。
+   - Phase 07：設為 `NOT_RUN`，保留 Attempt 1 完整歷史與失敗記錄，命令參數重新導向新工作樹，就緒執行 Attempt 2。
+   - Phases 08–15：設為 `NOT_RUN`，命令參數重新導向新工作樹。
+   - Ops quiet driver `run-phases.mjs`（SHA-256: `3e3e842cec91823a8ff9081ba6dbd1974162903ff4ea593b3038808ab10b570f`）就緒執行後續流程。
