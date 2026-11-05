@@ -811,3 +811,101 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
 
 
 
+
+
+---
+
+## 18. Phase 06 成功重試、Phase 07 負載測試失敗診斷、工作區專案數量勘誤與有界控制項分析
+
+### 18.1 前次 Resume Agent 執行歷程與 Phase 07 失敗事實記錄
+
+前次 resume agent 執行後未及提交 Phase 07 失敗紀錄，現據實補正執行歷程與原始證據：
+1. **Phase 06 (Attempt 2) 執行結果：**
+   - 啟用純快取配置後重試成功，狀態為 **PASSED (exit 0)**。
+   - 檔案指標：356 passed / 0 failed / 0 skipped (356 total)。
+   - 測試案例指標：6288 passed / 0 failed / 135 skipped (6423 total)。
+   - 耗時：約 16 分鐘（944.5s）。Phases 01–06 全數維持通過且具備完全可重用性。
+2. **Phase 07 (Attempt 1) 執行結果與失敗定位：**
+   - 執行命令：`scripts/run-vitest-stable.mjs --mode general --group general-server-without-chat-or-native-runner --shard-count 4 --shard-index 3`。
+   - 狀態：**FAILED (exit 1)**，耗時 965.3s。
+   - 檔案指標：349 passed / 1 failed / 6 skipped (356 total)。
+   - 測試指標：9943 passed / 1 failed / 49 skipped (9993 total)。
+   - 單一失敗案例：`server/src/__tests__/file-resources-git-scan-load.test.ts:151`
+     - 斷言：`expect(scheduler.snapshot().totals.singleFlightJoins).toBe(498)`
+     - 結果：`AssertionError: expected 384 to be 498`（在原 15_000ms 等候逾時時僅收集到 384 個 joins）。
+   - **Phases 08–15 狀態：** 因 Phase 07 失敗，後續 Phase 08 至 Phase 15 依 fail-stop 機制完全未執行（NOT RUN）。
+   - **失敗歷史保存：** 已建立專用日誌 `/private/tmp/pv-full/logs/phase-07-general-server-shard-3.attempt1.log`，並同步鏡像至 `/private/tmp/pv-full/attempt1/logs/` 與 `attempt1/manifests/phase-manifest.json`，確保 Attempt 1 失敗日誌完全保留不被覆蓋。
+
+### 18.2 官方 Inventory 專案數量勘誤（Workspaces-a/b/c 實際盤點）
+
+先前報告中關於 workspaces 分組之專案數量存在筆誤（曾誤植為 7/7/6）。經依據官方 dry-run inventory 清單（`dryrun-phase-09-general-workspaces-a.json`、`dryrun-phase-10-general-workspaces-b.json`、`dryrun-phase-11-general-workspaces-c.json`）進行位元組級核驗，實際分組專案數量如下：
+- **Phase 09 (workspaces-a):** **2 個專案**（`@paperclipai/ui`, `paperclipai`，即 root UI 與 CLI）。
+- **Phase 10 (workspaces-b):** **17 個專案**（`@paperclipai/shared`, `@paperclipai/skills-catalog`, `@paperclipai/adapter-utils`, `@paperclipai/adapter-claude-local`, `@paperclipai/adapter-codex-local`, `@paperclipai/adapter-cursor-cloud`, `@paperclipai/adapter-cursor-local`, `@paperclipai/adapter-gemini-local`, `@paperclipai/adapter-grok-local`, `@paperclipai/hermes-paperclip-adapter`, `@paperclipai/adapter-kimi-local`, `@paperclipai/adapter-openclaw-gateway`, `@paperclipai/adapter-opencode-local`, `@paperclipai/adapter-pi-local`, `@paperclipai/plugin-daytona`, `@paperclipai/plugin-sdk`, `@paperclipai/create-paperclip-plugin`）。
+- **Phase 11 (workspaces-c):** **1 個專案**（`@paperclipai/db`）。
+- **三大 Workspaces 專案總計：** 2 + 17 + 1 = **20 個專案**（非捏造之 7/7/6）。
+
+### 18.3 負載測試單獨執行與穩定性特徵化（3 次聚焦對照）
+
+在凍結快照（HEAD `cc56bbcd30a7`）上，完全排除其他 355 個檔案並以正式 clean-env 配方（Node 24、Git 2.56、Rust 1.97、Corepack 9、CARGO_NET_OFFLINE=true、CI=1、獨立暫存 HOME）單獨執行 `server/src/__tests__/file-resources-git-scan-load.test.ts`，保留全部 4 個案例、500 個請求、498 joins、2 個底層 scan、500 個 200 回應、25 次 health 及 p99<250ms、15s/60s 原門檻，進行 3 次聚焦重測以評估穩定性：
+
+| 執行輪次 | 執行模式 | exitCode | 耗時 | 結果 (Files / Tests) | singleFlightJoins (預期 498) | 日誌存檔 |
+|---|---|---|---|---|---|---|
+| Run 1 | 單檔串行單獨 (`--maxWorkers=1`) | 1 | 18.51s | 1 failed / 3 passed (4) | 403 | `/private/tmp/pv-load-triage/run1.log` |
+| Run 2 | 單檔串行單獨 (`--maxWorkers=1`) | 1 | 26.48s | 1 failed / 3 passed (4) | 412 | `/private/tmp/pv-load-triage/run2.log` |
+| Run 3 | 單檔串行單獨 (`--maxWorkers=1`) | 1 | 18.41s | 1 failed / 3 passed (4) | 399 | `/private/tmp/pv-load-triage/run3.log` |
+| Phase 07 (Att.1) | Shard 3 並行共跑 (`--maxWorkers=3`) | 1 | 963.14s | 1 failed / 349 passed | 384 | `/private/tmp/pv-full/logs/phase-07...attempt1.log` |
+
+**實測結論：**
+單獨執行該測試依然持續失敗（403、412、399 均未達 498），其餘 3 個案例均穩定通過。此結果**否定**了「單純與其他 355 個檔案並行干擾」的假說；該失敗為檔案本身在當前主機網路／傳輸架構下的決定性瓶頸。
+
+### 18.4 因果分析與獨立診斷探針結果
+
+為精確定位請求進入與 socket 階段瓶頸，於倉庫外建立獨立無害探針 `/private/tmp/pv-load-triage/timing-probe.mjs` 與 `probe-agent.mjs`，模擬 500 個瞬時請求進入本機 loopback：
+1. **主機 TCP Listen Backlog 限制：**
+   - 唯讀檢驗主機限制：`kern.ipc.somaxconn = 128`、`kern.maxfilesperproc = 61440`、soft FD = 1048575。
+   - 在 macOS 核心中，TCP listen backlog 由 `min(backlog, kern.ipc.somaxconn)` 決定，上限強制為 128。
+2. **Supertest 突發連線行為：**
+   - 測試程式以 `Array.from({ length: 500 }, ... => request(server).get(...))` 瞬間建立 500 個無管線化、無連接池的 TCP 連線。
+   - 當事件循環無法在單一 tick 內 accept 超過 128 個連線時，kernel listen queue 瞬間滿溢。
+   - macOS 核心對滿溢之 SYN 請求直接發送 RST，使客戶端收到 `ECONNRESET: Connection reset by peer`。
+   - 獨立探針實測：無連接池時，前 176 個請求成功進入，其餘 324 個請求在第 122 個起大量拋出 `ECONNRESET`。
+3. **測試本體瓶頸機制：**
+   - 在 `file-resources-git-scan-load.test.ts` 中，500 個連線中約有 86 至 116 個連線在 TCP 握手階段即被 kernel 重置或延遲重傳，未能及時抵達 Express 路由並呼叫 `scheduler.run()`。
+   - 抵達 `scheduler.run()` 者穩定落在 384–414 之間，導致在 15 秒門檻到達時 `singleFlightJoins` 僅達約 400，觸發 `vi.waitFor` 逾時。
+4. **控制項驗證（Control Validation）：**
+   - 在獨立探針中使用 `http.Agent({ keepAlive: true, maxSockets: 100 })` 限制瞬間握手數，實測 500 個請求全數成功抵達（500/500 received, 0 errors）。
+   - 此證明瓶頸為傳輸層客戶端連線池／backlog 突發握手限制，而非排程器內部互斥或產品死鎖。
+
+### 18.5 源碼不變（Source-Free）評估與 GO / NO-GO 結論
+
+依安全指引：禁止修改正式原始碼、禁止修改測試檔（不得調降 500 負載、放寬 15s/60s 門檻或弱化斷言）、禁止變更主機 sysctl 或系統 profile。
+- **Source-free 方案判定：** **NO-GO**。
+  - 因 standalone 單獨執行在當前環境下本身即無法通過，單純在測試執行層進行「Shard 3 拆分（1 檔串行 + 355 檔並行）」**不足以**使該負載測試在維持 500/498/15s 條件下變綠。
+  - 若需徹底修復，需由 Parent 進行設計更新（例如在測試端引進受控連線池／httpAgent，或依 CI 容器環境規格宣告 somaxconn 需求），且需經嚴格重新審查。
+  - 嚴格遵守「不得偽稱隔離已解決問題」、「不得擅自修改測試或產品原始碼」。
+
+### 18.6 保守官方等價 Phase 07 拆分提案（備案與無害 Fake Child 驗證）
+
+若未來 Parent 設計更新或環境就緒，為維持官方等價性，已備妥精確之 Shard 3 拆分提案與無害 fake children 驗證：
+1. **子組定義與聯集等價證明：**
+   - 原 Shard 3 檔案數：356 檔（SHA-256: `86dd1062d08fe277cbf56d257676ad3f868cd1bcc1b21720c23cdda5a36a9515`）。
+   - **子組 7A（負載檔單獨串行）：** 1 檔（`server/src/__tests__/file-resources-git-scan-load.test.ts`，SHA-256: `fe7827dc9cac1d221f42e81b1bb97f631b7f57c8aa1165f67d0f0719c2106cab`）。
+   - **子組 7B（其餘檔案原並行）：** 355 檔（SHA-256: `7efd77dfe58199f24da8a690dd4c4198729c25dda16a79f43e475558d7ae0374`）。
+   - **證明：** 重疊數 = 0，遺漏數 = 0，聯集完全等於原 356 檔清單（存檔於 `/private/tmp/pv-load-triage/shard3-split-inventory.json`）。
+2. **複合邏輯門禁（Composite Gate）：**
+   - 僅當 7A 與 7B 兩者實際 exitCode 皆為 0 時，Phase 07 複合狀態方得標記為 PASSED。
+   - 經無害 fake child 實測（`/private/tmp/pv-load-triage/fake-child-test.mjs`），3/3 邏輯案例（雙零成功、A 失敗即停、B 失敗即停）全數通過。
+   - 在獲得全新獨立審查核准前，**不執行**該 355 檔或任何全量套件。
+
+### 18.7 任務進度總覽（21 項進度更新）
+
+依據 Parent 更新之任務清單，目前 21 項任務狀態如下：
+- **已完成 (16 項)：** 1.1, 1.2, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.1, 3.2, 3.3, 4.1。
+- **待審查／重新開啟 (3 項)：**
+  - **task 2.10：`[ ]` 進行中／待審查（Pending Review）**：已完成有界因果診斷、原檔 3 次單獨重測、獨立探針對照與拆分清單證明；判定 source-free 為 NO-GO，等待 Parent 設計決策。
+  - **task 4.2：`[ ]` 重新開啟／待審查（Reopened, Pending Review）**。
+  - **task 4.3：`[ ]` 重新開啟／待審查（Reopened, Pending Review）**。
+- **未執行／待後續流程 (2 項)：**
+  - **task 4.4：`[ ]` 待執行（Pending）**。
+  - **task 5.1 / 5.2：`[ ]` 待獨立驗收交付（Pending）**。
+- **凍結快照狀態：** `/private/tmp/paperclip-portable-validation` 完全維持在 HEAD `cc56bbcd30a7de1a78a92b108dba772d3c02a500`、Tree `37295d5b275b63408b4c9d57ad9c76382c1f18e7`，100% 原始碼乾淨無污染。
