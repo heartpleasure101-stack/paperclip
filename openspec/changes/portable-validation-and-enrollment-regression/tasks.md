@@ -17,6 +17,8 @@
 
 - [x] 2.7 定義並實測可重現的 secret-free 驗證子行程環境：明確 allowlist、自有 HOME／Paperclip 設定、必要工具／cache；以假憑證 sentinel 證明不繼承主機變數，不改父 agent 認證或全域設定，不讀取真實秘密；乾淨環境的 preflight 與 blocker suites 全部通過，文件清楚說明並非 OS sandbox。
 
+- [ ] 2.8 修正第二輪複審的兩項 WARNING：每測試明確登記 executable／shell 形狀與自有 root，拒絕未知路徑命令、shell script、pipeline 或相對下載器；將同等保護套用 server 與 cursor-local 的全部假 sandbox runner，已知安裝只走無網路 stub；以無害字串／記錄 backend 重現四種繞過後證明拒絕，保留真實 fixture 執行及原斷言，再獨立複審。文件明確記錄 fake runner 依賴 clean-env、非 OS sandbox、SSH／Keychain 非隔離範圍及 signal 中止的清理限制，不擅自清理被拒的事故資料。
+
 ## 3. GitHub enrollment 因果修復
 
 - [x] 3.1 在隔離快照取得 ack=0 的因果證據（工作者 poll 結果／errors、HTTP 階段、delivery 狀態、虛擬時鐘／真實 I/O）；有界證明是哪一階段未完成，記錄 real-timer 或受控延遲對照，禁止只延長等待。

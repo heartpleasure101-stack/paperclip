@@ -14,6 +14,10 @@
 - **WHEN** 主機預設 sandbox PATH 不含 Node，測試執行暫存的假 Cursor CLI
 - **THEN** 替身仍能執行，原有 CLI 優先順序、明確 command override、提示內容與 PATH 斷言全部成立，且未改動主機預設目錄
 
+#### Scenario: 未登記的指令或暫存程式
+- **WHEN** 假 sandbox runner 收到未明確登記的程式、shell 形狀或自身測試根目錄外的路徑，即使路徑位於系統暫存目錄
+- **THEN** 在任何真實 backend 執行前拒絕；已知安裝器若需測試，只能進入明確登記的無網路模擬，不得落入真實執行的 fallback
+
 #### Scenario: 替身命令真的無法找到
 - **WHEN** 測試故意移除必要命令或提供無效 override
 - **THEN** 缺失可被偵測，不以下載真實 Cursor CLI 或吞掉錯誤假裝成功
