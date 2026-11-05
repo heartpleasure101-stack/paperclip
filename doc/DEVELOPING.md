@@ -1070,6 +1070,155 @@ or timeouts. An explicit `PAPERCLIP_TEST_DATABASE_URL` retains the original
 single, serial database path. Explicit `--group` invocations and CI shard routing
 are unchanged.
 
+### Isolated validation on a developer machine
+
+Validate in a local worktree (not a network share such as SMB), with Node 24 first on
+`PATH`, and run the read-only preflight before any expensive step. It reports the path,
+source and version of every tool it checks and exits non-zero before the long run when
+a tool the chosen stage needs is missing. It installs nothing, never connects to a
+database, and prints database URLs without user, password or query.
+
+```sh
+export PATH=/path/to/node24/bin:$PATH
+pnpm install --frozen-lockfile
+node scripts/validation-preflight.mjs --stage blockers   # node, pnpm, git, python
+node scripts/validation-preflight.mjs --stage build      # node, pnpm, git, rust
+node scripts/validation-preflight.mjs --stage full --json  # all of them, machine readable
+```
+
+Exit codes: `0` ready, `1` a required check failed (`failed` lists the ids), `2` bad
+arguments. Checks that are not required for the stage show as `SKIP`; `WARN` entries
+(for example `GIT_EDITOR`, a set `DATABASE_URL`, a network filesystem) never fail the run.
+
+- **Git**: the nested-clone and rehome tests feed `--not` to `git rev-list --stdin`. The
+  preflight probes that in a private temporary repository. Apple Git 2.39.3 fails with
+  `options not supported in --stdin mode`; Git 2.56.0 passes.
+- **Python**: `python3` must be 3.9 or newer. The Muse contract test starts `python3`
+  from `PATH`.
+- **Rust**: only the `build` and `full` stages. The version must match
+  `packages/paperclip-runner/rust-toolchain.toml`. Probes run with `RUSTUP_AUTO_INSTALL=0`
+  so a rustup shim cannot download a toolchain.
+- **pnpm**: when `pnpm` is a Corepack shim, the probe runs with `COREPACK_ENABLE_NETWORK=0`
+  and `COREPACK_ENABLE_AUTO_PIN=0`, so it fails with "Corepack is about to download" instead
+  of fetching a package manager. Point `COREPACK_HOME` at a cache that already holds the
+  pinned pnpm, or put a real pnpm first on `PATH`.
+- **Read-only**: every child process also gets `GIT_OPTIONAL_LOCKS=0`, so reading the
+  snapshot status does not refresh the repository index. If the probe directory cannot be
+  created (read-only or missing `TMPDIR`), the Git capability check fails with a reason in
+  the JSON report and a non-zero exit instead of an uncaught stack trace.
+
+Tools do not have to be on the shared `PATH`. Pass an explicit path with `--git`,
+`--python`, `--pnpm`, `--cargo` or `--rustc`, or set `PAPERCLIP_PREFLIGHT_GIT` (and the
+matching `_PYTHON`, `_PNPM`, `_CARGO`, `_RUSTC`). The tests resolve tools from `PATH`, so
+the report adds a `prepend <dir> to PATH` hint for every tool that came from a flag or
+variable. An isolated rustup also needs its own `CARGO_HOME` and `RUSTUP_HOME`.
+
+After the preflight passes, run the known environment blockers before anything slower.
+They are cheap and cover the Cursor sandbox, Muse and GitHub enrollment fixtures:
+
+```sh
+pnpm run test:validation-preflight
+pnpm --filter @paperclipai/plugin-sdk build   # server tests import its built entry
+cd server && pnpm exec vitest run \
+  src/__tests__/cursor-local-execute.test.ts \
+  src/__tests__/muse-client-contract.test.ts \
+  src/__tests__/github-connection-enrollment-work.test.ts \
+  src/__tests__/fake-clock-io.test.ts
+```
+
+Run the same commands with `src/__tests__/sandbox-install-guard.test.ts` added when you
+change the Cursor sandbox fixtures. If one of them fails, fix it before starting `pnpm -r typecheck`, `pnpm build` or the
+full suites; those take hours and will fail for the same reason.
+
+Fixture rules that keep these tests independent of the host:
+
+- The fake sandbox runner for Cursor tests (`helpers/sandbox-install-guard.ts` in server,
+  and `cursor-sandbox-test-policy.ts` in `packages/adapters/cursor-local`, backed by
+  `@paperclipai/adapter-utils/test-fixtures/sandbox-call-guard`) inspects
+  every call before any process starts: the command, its arguments and any stdin that could
+  be executed. It accepts only `sh -c <recognized local script>` matching registered templates
+  and fixture binaries explicitly registered under the test's owned temp root. It refuses
+  path-shaped commands, unlisted shell forms, pipeline/script bypasses, installer URLs, `curl`,
+  `wget`, package managers, command substitution, stdin scripts and any word it does not recognize,
+  so a changed or unknown install form fails closed. A refusal means the fixture CLI was not found,
+  which must be fixed in the fixture; never remove the guard to see what the installer prints.
+  Known installer simulation runs only through an explicit harmless stub and never falls back to
+  a real backend. Guard tests use inert strings and a recording backend, never a real downloader.
+  The runner also executes the fixture CLI with an allowlisted environment (`HOME`, `PATH`, `LANG`,
+  `LC_ALL`, `TMPDIR` and the adapter's `PAPERCLIP_*` values), not the host environment. Fake runners
+  rely on clean-env execution for parent environment isolation.
+
+- Fake CLIs that start with `#!/usr/bin/env node` get their runtime from their own fake
+  `HOME` (`.local/bin/node` linked to `process.execPath`). Do not widen the production
+  sandbox `PATH` (`defaultPathForPlatform`) or link Node into `/usr/local/bin` to make a
+  fixture pass.
+- A mocked `urllib.error.HTTPError` needs a real, closable body (`io.BytesIO`). `fp=None`
+  fails on Python 3.9 when the error is closed.
+- When a test fakes `setTimeout`/`Date` while real loopback I/O runs, wait with
+  `settleDueTimers()` from `server/src/__tests__/helpers/fake-clock-io.ts` instead of a
+  bare `setImmediate`. Node's HTTP client schedules zero-delay timers of its own; the
+  helper runs only timers that are due now and never moves virtual time. Do not make the
+  wait longer to hide a stalled request.
+
+Do not point `DATABASE_URL` or `PAPERCLIP_TEST_DATABASE_URL` at a production database, and
+unset `GIT_EDITOR` (a value such as `false` breaks the rebase fixtures).
+
+Tested-version limit: the cause of the GitHub enrollment stall (a zero-delay timer from
+Node's bundled undici blocked by the test's fake `setTimeout`) was diagnosed on Node
+v24.18.0 / undici 7.28.0 only. CI floats `node-version: 24`, so other 24.x builds were not
+checked and older Node was not checked. The `settleDueTimers()` fix does not depend on a
+particular undici version, but treat the diagnosis itself as verified for that build.
+
+#### Secret-free validation subprocess
+
+For the long acceptance runs, start each command through `scripts/validation-clean-env.mjs`
+instead of your shell environment. The child receives only an explicit allowlist: `PATH`
+(the running Node, each `--bin` directory you declare, then the system directories), an
+owned temporary `HOME`, `TMPDIR`, `PAPERCLIP_HOME` and XDG directories, a Git config with a
+synthetic test identity (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM=1`), and
+`COREPACK_ENABLE_NETWORK=0`, `COREPACK_ENABLE_AUTO_PIN=0`, `RUSTUP_AUTO_INSTALL=0`. Provider
+and API keys, personal Git or shell configuration, database URLs and `NODE_OPTIONS`
+monkeypatches are not inherited. The owned directory is removed when the command ends.
+
+```sh
+export PATH=/path/to/node24/bin:$PATH
+CLEAN="node $PWD/scripts/validation-clean-env.mjs \
+  --bin /path/to/git-2.56/bin \
+  --set COREPACK_HOME=/path/to/isolated/corepack-cache"   # cache that already holds pnpm@9.15.4
+$CLEAN -- node scripts/validation-preflight.mjs --stage blockers
+$CLEAN -- pnpm run test:validation-preflight
+$CLEAN -- pnpm run test:validation-clean-env
+cd server && $CLEAN -- pnpm exec vitest run \
+  src/__tests__/cursor-local-execute.test.ts src/__tests__/sandbox-install-guard.test.ts \
+  src/__tests__/muse-client-contract.test.ts src/__tests__/fake-clock-io.test.ts \
+  src/__tests__/github-connection-enrollment-work.test.ts
+```
+
+Declare every tool directory with `--bin` (Git, Python, Rust, pnpm); a tool outside the
+declared directories is "not found" rather than silently taken from your profile. A cached
+pnpm needs an explicit `COREPACK_HOME` (copy the pinned version into an isolated directory);
+the environment never lets Corepack download. `--set NAME=VALUE` and `--pass NAME` forward
+extra variables you choose, but names that look like credentials (`KEY`, `TOKEN`, `SECRET`,
+`PASSWORD`, `AUTH`, ...), `NODE_OPTIONS`, `DATABASE_URL` and `DYLD_*` are refused. Use
+`--describe` to print the planned variables without running anything.
+
+This is environment hygiene, **not an operating-system sandbox**. The child still runs as
+your user, can read any file you can read and can reach the network. It does not change the
+parent process, the parent agent's model credentials or any global setting.
+
+Explicit environment isolation limits:
+- Tools that look up home directories or credentials directly in the user database or macOS
+  Keychain (for example `ssh` reading default keys or Keychain-integrated credential helpers)
+  are outside the scope of `HOME` redirection.
+- Environment variable filtering is a name-based filter against known credential and injection
+  keys; it does not scan variable values (for example, credentials embedded inside an arbitrary
+  proxy URL are not scanned).
+- Subprocess cleanup relies on `finally` within `spawnSync`. If the runner process is killed
+  by an uncatchable signal (such as `SIGKILL`), the temporary owned directory cannot be cleaned
+  up automatically and must be removed manually.
+- Clean-env execution through `scripts/validation-clean-env.mjs` is mandatory for running the
+  fake sandbox suites so the child never inherits host environment secrets.
+
 For interactive Vitest watch mode use:
 
 ```sh

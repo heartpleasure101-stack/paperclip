@@ -3,9 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { AdapterExecutionTarget } from "@paperclipai/adapter-utils/execution-target";
-import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
 import { SANDBOX_INSTALL_COMMAND } from "../index.js";
 import { execute } from "./execute.js";
+import { createInertBypassProbes } from "@paperclipai/adapter-utils/test-fixtures/sandbox-fixture-runner";
+import { createCursorSandboxRunner } from "./cursor-sandbox-test-policy.js";
 import { createPromptContextFixture } from "@paperclipai/adapter-utils/test-fixtures/prompt-context";
 
 type PrepareCursorSandboxCommandInput = {
@@ -79,12 +80,11 @@ function buildInstallSimulationCommand(commandPath: string, captureDir: string):
 }
 
 function createFreshLeaseSandboxRunner(options: {
+  root: string;
   homeDir: string;
   installCommandPath: string;
   captureDir: string;
 }) {
-  let counter = 0;
-  const installCommands: string[] = [];
   const fixtureBin = path.join(options.homeDir, "fixture-system-bin");
   const fixtureReady = (async () => {
     await fs.mkdir(fixtureBin, { recursive: true });
@@ -99,49 +99,35 @@ function createFreshLeaseSandboxRunner(options: {
     "/sbin",
   ].join(path.delimiter);
 
-  return {
-    installCommands,
-    execute: async (input: {
-      command: string;
-      args?: string[];
-      cwd?: string;
-      env?: Record<string, string>;
-      stdin?: string;
-      timeoutMs?: number;
-      onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
-      onSpawn?: (meta: { pid: number; startedAt: string }) => Promise<void>;
-    }) => {
-      await fixtureReady;
-      counter += 1;
-      const args = [...(input.args ?? [])];
-      if (args[1] === SANDBOX_INSTALL_COMMAND) {
-        installCommands.push(args[1]);
-        args[1] = buildInstallSimulationCommand(options.installCommandPath, options.captureDir);
-      }
-
+  // The runner refuses anything this test did not register, and the known installer request is
+  // only ever replaced by the local stub below; it never reaches a real backend.
+  const guarded = createCursorSandboxRunner({
+    ownedRoots: [options.root],
+    executables: [options.installCommandPath],
+    installStub: {
+      request: SANDBOX_INSTALL_COMMAND,
+      script: buildInstallSimulationCommand(options.installCommandPath, options.captureDir),
+    },
+    backendOptions: {
+      label: "cursor-fresh-lease",
       // A fresh remote lease has its own PATH, independent of installed host agents.
-      const inheritedPath = systemPath;
-      const pathWithLocalBin = `${path.join(options.homeDir, ".local", "bin")}${path.delimiter}${inheritedPath}`;
-      const env = {
-        ...(input.env ?? {}),
-        HOME: input.env?.HOME ?? options.homeDir,
-        PATH: pathWithLocalBin,
-      };
+      transformEnv: (env) => ({
+        ...(env ?? {}),
+        HOME: env?.HOME ?? options.homeDir,
+        PATH: `${path.join(options.homeDir, ".local", "bin")}${path.delimiter}${systemPath}`,
+      }),
+    },
+  });
 
+  return {
+    installCommands: guarded.installCommands,
+    refusals: guarded.refusals,
+    execute: async (input: Parameters<typeof guarded.execute>[0]) => {
+      await fixtureReady;
       if (["agent", "cursor-agent"].includes(path.basename(input.command)) && input.command !== options.installCommandPath) {
         throw new Error("Fresh sandbox fixture refused an agent outside its installation path");
       }
-      return await runChildProcess(`cursor-fresh-lease-${counter}`, input.command, args, {
-        cwd: input.cwd ?? process.cwd(),
-        env,
-        stdin: input.stdin,
-        timeoutSec: Math.max(1, Math.ceil((input.timeoutMs ?? 30_000) / 1000)),
-        graceSec: 5,
-        onLog: input.onLog ?? (async () => {}),
-        onSpawn: input.onSpawn
-          ? async (meta) => input.onSpawn?.({ pid: meta.pid, startedAt: meta.startedAt })
-          : undefined,
-      });
+      return await guarded.execute(input);
     },
   };
 }
@@ -231,6 +217,7 @@ exit 7
     await fs.mkdir(remoteWorkspace, { recursive: true });
 
     const runner = createFreshLeaseSandboxRunner({
+      root,
       homeDir,
       installCommandPath: agentPath,
       captureDir,
@@ -286,6 +273,28 @@ exit 7
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses fresh-lease runner calls its test did not register before any process starts", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cursor-fresh-lease-bypass-"));
+    try {
+      const { calls, sentinelPath } = createInertBypassProbes(root);
+      const runner = createFreshLeaseSandboxRunner({
+        root,
+        homeDir: path.join(root, "home"),
+        installCommandPath: path.join(root, "home", ".local", "bin", "agent"),
+        captureDir: path.join(root, "capture"),
+      });
+      const spawned = vi.fn();
+      for (const { name, call } of calls) {
+        await expect(runner.execute({ ...call, onSpawn: spawned }), name).rejects.toThrow(/refused|blocked before execution/);
+      }
+      expect(spawned).not.toHaveBeenCalled();
+      await expect(fs.stat(sentinelPath)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(runner.installCommands).toEqual([]);
+    } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
@@ -360,33 +369,37 @@ printf '%s\\n' '{"type":"result","subtype":"success","session_id":"cursor-sessio
     // The managed-runtime restore path probes the generated archive with
     // `wc -c` before reading bounded `dd | base64` chunks. Keep this fixture's
     // shell seam faithful to that protocol instead of returning empty stdout
-    // for every shell command.
+    // for every shell command. Exactly the registered forms, roots and fixture agent may run,
+    // and the installer request is only ever replaced by the local stub, never run.
+    const guarded = createCursorSandboxRunner({
+      ownedRoots: [rootDir],
+      executables: [path.join(systemHomeDir, ".local", "bin", "agent")],
+      installStub: {
+        request: SANDBOX_INSTALL_COMMAND,
+        script: buildInstallSimulationCommand(path.join(systemHomeDir, ".local", "bin", "agent"), managedCaptureDir),
+      },
+      backendOptions: {
+        label: "cursor-fresh-lease",
+        passEnv: ["FIXTURE_CURL_ATTEMPT_PATH"],
+        cwd: () => remoteWorkspace,
+        timeoutSec: () => 30,
+        transformEnv: (env) => ({
+          ...(env ?? {}),
+          PATH: `${fixtureBinDir}:${env?.PATH ?? ""}:/usr/bin:/bin`,
+          FIXTURE_CURL_ATTEMPT_PATH: networkAttemptPath,
+        }),
+      },
+    });
+    // Exercise actual bounded file reads during managed-home restoration;
+    // reporting empty success for every shell command hides missing bytes.
     const runner = {
-      execute: async (input: { command: string; args?: string[]; env?: Record<string, string>; stdin?: string }) => {
+      execute: async (input: Parameters<typeof guarded.execute>[0]) => {
         runnerState.commands.push(input.command);
-        const args = [...(input.args ?? [])];
-        if (args[1] === SANDBOX_INSTALL_COMMAND) {
-          runnerState.installCommands.push(args[1]);
-          args[1] = buildInstallSimulationCommand(
-            path.join(systemHomeDir, ".local", "bin", "agent"),
-            managedCaptureDir,
-          );
+        try {
+          return await guarded.execute(input);
+        } finally {
+          runnerState.installCommands = [...guarded.installCommands];
         }
-        // Exercise actual bounded file reads during managed-home restoration;
-        // reporting empty success for every shell command hides missing bytes.
-        return runChildProcess(`cursor-fresh-lease-${runnerState.commands.length}`, input.command, args, {
-          cwd: remoteWorkspace,
-          env: {
-            ...input.env,
-            PATH: `${fixtureBinDir}:${input.env?.PATH ?? ""}:/usr/bin:/bin`,
-            FIXTURE_CURL_ATTEMPT_PATH: networkAttemptPath,
-          },
-          stdin: input.stdin,
-          timeoutSec: 30,
-          graceSec: 5,
-          onLog: async () => {},
-          onSpawn: async () => {},
-        });
       },
     };
 
@@ -443,6 +456,15 @@ printf '%s\\n' '{"type":"result","subtype":"success","session_id":"cursor-sessio
       const resolvedCommand = runMeta.find(Boolean)?.command as string | undefined;
       expect(resolvedCommand).toMatch(/\.local\/bin\/agent$/);
       expect(resolvedCommand).toContain(path.join(systemHomeDir, ".local", "bin", command));
+
+      // The same runner refuses anything this test did not register, before a process starts.
+      const { calls, sentinelPath } = createInertBypassProbes(rootDir);
+      const spawned = vi.fn();
+      for (const { name, call } of calls) {
+        await expect(runner.execute({ ...call, onSpawn: spawned }), name).rejects.toThrow(/blocked before execution/);
+      }
+      expect(spawned).not.toHaveBeenCalled();
+      await expect(fs.stat(sentinelPath)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;

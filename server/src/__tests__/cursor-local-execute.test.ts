@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
 import { execute } from "@paperclipai/adapter-cursor-local/server";
+import { createInertBypassProbes } from "@paperclipai/adapter-utils/test-fixtures/sandbox-fixture-runner";
+import { createCursorSandboxRunner } from "./helpers/sandbox-install-guard.js";
 
 // These fixtures verify command discovery, environment and real CLI execution.
 // Callback bridge startup/teardown has its own execution-target coverage; starting
@@ -87,38 +88,30 @@ console.log(JSON.stringify({
   await fs.chmod(commandPath, 0o755);
 }
 
-function createLocalSandboxRunner() {
-  let counter = 0;
-  return {
-    execute: async (input: {
-      command: string;
-      args?: string[];
-      cwd?: string;
-      env?: Record<string, string>;
-      stdin?: string;
-      timeoutMs?: number;
-      onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
-      onSpawn?: (meta: { pid: number; startedAt: string }) => Promise<void>;
-    }) => {
-      counter += 1;
-      // Both sandbox fixtures install their fake CLI up front. Never fall back
-      // to a network install if discovery regresses on another host or shell.
-      if (input.args?.some(arg => arg.includes("curl https://cursor.com/install"))) {
-        throw new Error("Sandbox fixture did not discover its preinstalled Cursor CLI");
-      }
-      return await runChildProcess(`cursor-sandbox-execute-${counter}`, input.command, input.args ?? [], {
-        cwd: input.cwd ?? process.cwd(),
-        env: input.env ?? {},
-        stdin: input.stdin,
-        timeoutSec: Math.max(1, Math.ceil((input.timeoutMs ?? 30_000) / 1000)),
-        graceSec: 5,
-        onLog: input.onLog ?? (async () => {}),
-        onSpawn: input.onSpawn
-          ? async (meta) => input.onSpawn?.({ pid: meta.pid, startedAt: meta.startedAt })
-          : undefined,
-      });
-    },
-  };
+// The sandbox runner deliberately uses the production default PATH, which does not
+// contain version-manager directories. The `#!/usr/bin/env node` fixtures above
+// therefore need a runtime inside their own fake HOME instead of a global Node.
+// The link targets the Node that runs this test, so paths with spaces stay safe.
+async function installFixtureNodeRuntime(binDir: string): Promise<string> {
+  await fs.mkdir(binDir, { recursive: true });
+  const runtimePath = path.join(binDir, "node");
+  await fs.symlink(process.execPath, runtimePath);
+  return runtimePath;
+}
+
+// Local-command fixtures also resolve `env node` through the child PATH, which
+// otherwise comes from whichever shell started the test run.
+async function fixtureRuntimeEnv(root: string): Promise<{ PATH: string }> {
+  const binDir = path.join(root, "runtime-bin");
+  await installFixtureNodeRuntime(binDir);
+  return { PATH: [binDir, process.env.PATH ?? ""].filter(Boolean).join(path.delimiter) };
+}
+
+// Every sandbox runner is guarded before any backend runs and executes the fixture CLI with
+// a secretless environment. Each test registers its own mkdtemp root and the exact fixture
+// executables it may start; see helpers/sandbox-install-guard.ts.
+function createLocalSandboxRunner(root: string, executables: string[]) {
+  return createCursorSandboxRunner({ ownedRoots: [root], executables });
 }
 
 type CapturePayload = {
@@ -142,6 +135,7 @@ describe("cursor execute", () => {
     const capturePath = path.join(root, "capture.json");
     await fs.mkdir(workspace, { recursive: true });
     await writeFakeCursorCommand(commandPath);
+    const runtimeEnv = await fixtureRuntimeEnv(root);
 
     const previousHome = process.env.HOME;
     process.env.HOME = root;
@@ -168,6 +162,7 @@ describe("cursor execute", () => {
           cwd: workspace,
           model: "auto",
           env: {
+            ...runtimeEnv,
             PAPERCLIP_TEST_CAPTURE_PATH: capturePath,
           },
           promptTemplate: "Follow the paperclip heartbeat.",
@@ -217,6 +212,7 @@ describe("cursor execute", () => {
     const capturePath = path.join(root, "capture.json");
     await fs.mkdir(workspace, { recursive: true });
     await writeFakeCursorCommand(commandPath);
+    const runtimeEnv = await fixtureRuntimeEnv(root);
 
     const previousHome = process.env.HOME;
     process.env.HOME = root;
@@ -243,6 +239,7 @@ describe("cursor execute", () => {
           model: "auto",
           mode: "ask",
           env: {
+            ...runtimeEnv,
             PAPERCLIP_TEST_CAPTURE_PATH: capturePath,
           },
           promptTemplate: "Follow the paperclip heartbeat.",
@@ -277,6 +274,7 @@ describe("cursor execute", () => {
     const runtimeSkillsRoot = path.join(root, "runtime-skills");
     await fs.mkdir(workspace, { recursive: true });
     await writeFakeCursorCommand(commandPath);
+    const runtimeEnv = await fixtureRuntimeEnv(root);
 
     const paperclipDir = await createSkillDir(runtimeSkillsRoot, "paperclip");
     const asciiHeartDir = await createSkillDir(runtimeSkillsRoot, "ascii-heart");
@@ -304,7 +302,7 @@ describe("cursor execute", () => {
           command: commandPath,
           cwd: workspace,
           model: "auto",
-          env: { HOME: configuredHome },
+          env: { ...runtimeEnv, HOME: configuredHome },
           paperclipRuntimeSkills: [
             {
               name: "paperclip",
@@ -354,6 +352,7 @@ describe("cursor execute", () => {
     await fs.mkdir(workspace, { recursive: true });
     await fs.mkdir(remoteWorkspace, { recursive: true });
     await writeFakeSandboxCursorAgent(cursorAgentPath, capturePath);
+    await installFixtureNodeRuntime(path.dirname(cursorAgentPath));
 
     const previousHome = process.env.HOME;
     process.env.HOME = homeDir;
@@ -378,7 +377,7 @@ describe("cursor execute", () => {
           kind: "remote",
           transport: "sandbox",
           remoteCwd: remoteWorkspace,
-          runner: createLocalSandboxRunner(),
+          runner: createLocalSandboxRunner(root, [cursorAgentPath]),
           timeoutMs: 30_000,
         },
         config: {
@@ -420,6 +419,7 @@ describe("cursor execute", () => {
     await fs.mkdir(remoteWorkspace, { recursive: true });
     await writeFakeSandboxCursorAgent(cursorAgentPath, path.join(root, "unused.json"));
     await writeFakeSandboxCursorAgent(customCommandPath, capturePath);
+    await installFixtureNodeRuntime(path.dirname(cursorAgentPath));
 
     const previousHome = process.env.HOME;
     process.env.HOME = homeDir;
@@ -444,7 +444,7 @@ describe("cursor execute", () => {
           kind: "remote",
           transport: "sandbox",
           remoteCwd: remoteWorkspace,
-          runner: createLocalSandboxRunner(),
+          runner: createLocalSandboxRunner(root, [customCommandPath]),
           timeoutMs: 30_000,
         },
         config: {
@@ -460,10 +460,89 @@ describe("cursor execute", () => {
       expect(result.exitCode).toBe(0);
       const capture = JSON.parse(await fs.readFile(capturePath, "utf8")) as { command: string };
       expect(capture.command).toBe(customCommandPath);
+      expect((await fs.lstat(path.join(homeDir, ".local", "bin", "node"))).isSymbolicLink()).toBe(true);
+      expect(await fs.realpath(path.join(homeDir, ".local", "bin", "node"))).toBe(await fs.realpath(process.execPath));
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
       await fs.rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("refuses calls its test did not register before any process starts", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cursor-sandbox-bypass-"));
+    try {
+      const { calls, sentinelPath } = createInertBypassProbes(root);
+      const runner = createLocalSandboxRunner(root, []);
+      const spawned = vi.fn();
+      for (const { name, call } of calls) {
+        await expect(runner.execute({ ...call, onSpawn: spawned }), name).rejects.toThrow(/blocked before execution/);
+      }
+      expect(spawned).not.toHaveBeenCalled();
+      await expect(fs.stat(sentinelPath)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(runner.refusals).toHaveLength(calls.length);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  // Negative controls: a fixture that is not installed must stay visible. The sandbox
+  // runner above throws before it would ever run the network installer.
+  describe.each([
+    { name: "a missing default Cursor CLI", command: "agent" },
+    { name: "an invalid explicit override", command: "__OVERRIDE__" },
+  ])("sandbox fixture with $name", ({ command }) => {
+    it("does not report success or download a real CLI", async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cursor-sandbox-missing-"));
+      const homeDir = path.join(root, "home");
+      const workspace = path.join(root, "workspace");
+      const remoteWorkspace = path.join(root, "remote-workspace");
+      await fs.mkdir(homeDir, { recursive: true });
+      await fs.mkdir(workspace, { recursive: true });
+      await fs.mkdir(remoteWorkspace, { recursive: true });
+      // The fake HOME owns a runtime but no Cursor CLI, so only the CLI is missing.
+      await installFixtureNodeRuntime(path.join(homeDir, ".local", "bin"));
+      const calls: string[] = [];
+      const runner = createLocalSandboxRunner(root, []);
+      const previousHome = process.env.HOME;
+      process.env.HOME = homeDir;
+      try {
+        const outcome = await execute({
+          runId: "run-sandbox-missing",
+          agent: { id: "agent-1", companyId: "company-1", name: "Cursor Coder", adapterType: "cursor", adapterConfig: {} },
+          runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: null },
+          executionTarget: {
+            kind: "remote",
+            transport: "sandbox",
+            remoteCwd: remoteWorkspace,
+            runner: {
+              execute: async input => {
+                calls.push([input.command, ...(input.args ?? [])].join(" "));
+                return await runner.execute(input);
+              },
+            },
+            timeoutMs: 30_000,
+          },
+          config: {
+            command: command === "__OVERRIDE__" ? path.join(root, "bin", "does-not-exist") : command,
+            cwd: workspace,
+            promptTemplate: "Follow the paperclip heartbeat.",
+          },
+          context: {},
+          authToken: "run-jwt-token",
+          onLog: async () => {},
+        }).then(result => ({ result, error: null as unknown }), error => ({ result: null, error }));
+        // The adapter asks to install the missing CLI; the fixture runner refuses, so the
+        // failure surfaces as a rejection instead of a successful or downloaded run.
+        expect(outcome.result, JSON.stringify(outcome.result)).toBeNull();
+        expect(String(outcome.error)).toMatch(/did not discover its preinstalled Cursor CLI/);
+        expect(calls.some(call => call.includes("curl https://cursor.com/install"))).toBe(true);
+        expect(calls.some(call => call.includes("cursor-agent") && !call.includes("command -v") && !call.includes("-x "))).toBe(false);
+      } finally {
+        if (previousHome === undefined) delete process.env.HOME;
+        else process.env.HOME = previousHome;
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
   });
 });
