@@ -399,3 +399,89 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
 4. **邊界與限制保留：** 因果診斷依舊限定於 Node v24.18.0 / undici 7.28.0；歷史事故之三個殘留目錄（兩個 `probe-*` 與 `cursor-agent-logs-502`）依舊保留待擁有者處置；`clean-env` 是環境變數清理而非 OS 沙箱。
 5. **後續整合關卡（Next Integration Gates）：** tasks 4 與 5（包含跨分支 merge、官方 dry-run 完整選集與各分組驗收、正式 PR 更新與驗收交付）仍保持未開始（pending），待下一階段整合流程進行。
 
+## 13. 本機整合與前置／Typecheck／Build 驗收紀錄（2026-11-05，整合驗證 session）
+
+依據任務指示，整合驗證 session 已完成修復分支本機 merge、工作樹不可變切換、乾淨環境（`scripts/validation-clean-env.mjs`）前置檢查、守護與回歸選集、以及全 workspace 之 build 與 typecheck。
+
+### 13.1 本機 Merge 與來源身分指紋
+
+1. **Merge 提交紀錄：**
+   - 原摘要 branch：`fix/pi-single-prompt-summary-dedup`
+   - Merge commit SHA：`cc56bbcd30a7de1a78a92b108dba772d3c02a500`
+   - 父提交 1（Parent 1，摘要分支）：`e5eee012e94f5fd04c29e12235afcf59fdf7aa82`
+   - 父提交 2（Parent 2，修復分支）：`b57ac3112696296078d9f4872da827d44d33d926`
+   - 方式：`git merge --no-ff --no-edit fix/portable-validation-baseline`（一般 merge commit，無 skip／無 no-verify，正常 hooks）。
+   - 未執行 remote push，不 merge GitHub PR，不 force-push。
+
+2. **工作樹狀態與不可變快照：**
+   - 驗證工作樹目錄：`/private/tmp/paperclip-portable-validation`
+   - 工作樹 checkout 狀態：`git switch --detach cc56bbcd30a7de1a78a92b108dba772d3c02a500`（detached HEAD）
+   - 修復分支 ref `refs/heads/fix/portable-validation-baseline` 仍停留在 `b57ac3112696296078d9f4872da827d44d33d926`，PR #2 維持獨立。
+   - 工作樹 HEAD：`cc56bbcd30a7de1a78a92b108dba772d3c02a500`
+   - 工作樹 Tree SHA：`37295d5b275b63408b4c9d57ad9c76382c1f18e7`
+   - 驗證期間與驗證結束後，本機工作樹追蹤檔案完全不可變，無任何 source 變動或 uncommitted entries。
+
+3. **五項 Pi 摘要去重相關檔案雜湊（SHA-256）：**
+   與 `e5eee012e` 逐位元完全一致：
+   - `2a516bbf2461b5f3eeb1cc9b0e7653d8c51c2677c157b32e1ba9b6be4d4101e6`  `packages/adapter-utils/src/continuation-summary-dedup.test.ts`
+   - `417b4066d33ffe1b77982861fa8621f706acac5efab1c6e0a5a23b5e672a8b9d`  `packages/adapter-utils/src/server-utils.ts`
+   - `222ace23dcfe3edc282324fd4f422a07c627e6962dcaa3992e3991301a82bc85`  `packages/adapters/opencode-local/src/server/execute.test.ts`
+   - `d55586be6d5a24a730661cedf37cdd7500a6957977df463129944e05a8f04a33`  `packages/adapters/pi-local/src/server/execute.summary-dedup.test.ts`
+   - `036a23cdb8c0ab34f2e99a270647a636fb066c229ea957d75ed4e631145cef20`  `packages/adapters/pi-local/src/server/execute.ts`
+
+### 13.2 驗證環境與執行工具鏈
+
+全部子程序皆透過 `scripts/validation-clean-env.mjs` 執行：
+- 執行器 Node：`/Users/Hermes/.nvm/versions/node/v24.18.0/bin/node`（Node 24.18.0）
+- 宣告工具目錄：`--bin /private/tmp/pi-dedup-git-toolchain/bin --bin /private/tmp/pi-dedup-rust-toolchain/cargo/bin --bin /usr/bin --bin /opt/homebrew/bin`
+  - Git：`git version 2.56.0`（來自 `/private/tmp/pi-dedup-git-toolchain/bin`）
+  - Python：系統預設 `/usr/bin/python3`（Python 3.9.6）位於 Homebrew 之前
+  - Rustc / Cargo：`1.97.1`（來自 `/private/tmp/pi-dedup-rust-toolchain/cargo/bin`）
+- 環境變數：`--set COREPACK_HOME=/private/tmp/pv-clean-tools/corepack --set CARGO_HOME=/private/tmp/pi-dedup-rust-toolchain/cargo --set RUSTUP_HOME=/private/tmp/pi-dedup-rust-toolchain/rustup --set CARGO_NET_OFFLINE=true --set CI=1`
+- 不繼承主機敏感憑證、無個人 Git/Shell 設定、不讀取真實秘密。
+
+### 13.3 執行命令、退出碼與測試數據對照表
+
+所有 log 與 manifest 均保存於 `/private/tmp/pv-integration/`：
+
+| 階段 / 測試組 | 執行命令 | 結果 / 退出碼 | 數據摘要 |
+|---|---|---|---|
+| Preflight stage full | `node scripts/validation-preflight.mjs --stage full` | exit 0 | 全部工具及快照檢查 PASS（Node, pnpm, git, git-rev-list, python, rustc, cargo, rustfmt, fs, snapshot） |
+| Workspace links | `pnpm run preflight:workspace-links` | exit 0 | 修正 example 符號連結，全 workspace 套件連結就緒 |
+| Adapter-utils build | `pnpm --filter @paperclipai/adapter-utils build` | exit 0 | 產生最新型別宣告，供後續測試引用 |
+| Preflight 單元測試 | `pnpm run test:validation-preflight` | exit 0 | 12 tests passed (0 fail) |
+| Clean-env 單元測試 | `pnpm run test:validation-clean-env` | exit 0 | 7 tests passed (0 fail) |
+| Preflight blockers | `node scripts/validation-preflight.mjs --stage blockers` | exit 0 | PASS |
+| Pure Guard: adapter-utils | `cd packages/adapter-utils && pnpm exec vitest run src/test-fixtures/sandbox-call-guard.test.ts` | exit 0 | 67 tests passed (0 fail) |
+| Pure Guard: server | `cd server && pnpm exec vitest run src/__tests__/sandbox-install-guard.test.ts` | exit 0 | 28 tests passed (0 fail) |
+| Muse Python 合約 (系統 3.9.6) | `/usr/bin/python3 -I server/src/__tests__/fixtures/muse-client-contract.py server/src/services/scripts/v9/client.py` | exit 0 | 64 tests passed (0 fail) |
+| Muse Python 合約 (Homebrew) | `/opt/homebrew/bin/python3 -I server/src/__tests__/fixtures/muse-client-contract.py server/src/services/scripts/v9/client.py` | exit 0 | 64 tests passed (0 fail) |
+| Cursor-local 套件測試 (3 檔) | `cd packages/adapters/cursor-local && pnpm exec vitest run src/server/execute.test.ts src/server/test.test.ts src/server/remote-command.test.ts` | exit 0 | 3 files, 15 tests passed (0 fail) |
+| Server 目標測試組 (6 檔，148 組件) | `cd server && pnpm exec vitest run src/__tests__/cursor-local-execute.test.ts src/__tests__/sandbox-install-guard.test.ts src/__tests__/muse-client-contract.test.ts src/__tests__/fake-clock-io.test.ts src/__tests__/github-connection-enrollment-work.test.ts src/__tests__/cursor-local-adapter-environment.test.ts` | exit 0 | 6 files, 66 tests passed (0 fail) |
+| Clone 回歸測試組 (2 檔) | `cd server && pnpm exec vitest run src/__tests__/isolated-repository-rehome.test.ts src/__tests__/nested-clone-migration.test.ts` | exit 0 | 2 files, 49 tests passed (0 fail) |
+| Pi / OpenCode 摘要去重 (3 檔) | `pnpm exec vitest run packages/adapter-utils/src/continuation-summary-dedup.test.ts packages/adapters/pi-local/src/server/execute.summary-dedup.test.ts packages/adapters/opencode-local/src/server/execute.test.ts` | exit 0 | 3 files, 52 tests passed (0 fail) |
+| 全 Workspace Build | `pnpm -r --workspace-concurrency=1 build` | exit 0 | 35 of 35 projects built successfully (含 runner release binary 編譯) |
+| 全 Workspace Typecheck | `pnpm -r --workspace-concurrency=1 typecheck` | exit 0 | 35 of 35 projects typechecked successfully (0 errors) |
+
+### 13.4 聚焦測試加總驗收
+
+- 原始已修復 148 聚焦測試：66 (server) + 15 (cursor-local) + 67 (adapter-utils) = **148 tests passed**（0 failed / 0 skipped）。
+- Clone 回歸測試：**49 tests passed**。
+- Phase 1 Pi / OpenCode 摘要去重測試：**52 tests passed**。
+- Preflight / Clean-env 單元測試：12 + 7 = **19 tests passed**。
+- Muse Python 合約測試：雙 Python 版本各 64 tests passed。
+- 所有原斷言與原測試結構完全保留，未對正式原始碼或測試案例做弱化修改。
+
+### 13.5 任務狀態更新
+
+- **task 4.1：保持未勾選（`[ ]`）**，等待協調者／coordinator 處置與上傳 summary merge（本 session 遵循 push deny 指令，不在本機執行 push）。
+- **task 4.2：標記完成（`- [x]`）**，前置條件、已知 blocker、相關回歸、全 workspace build 與 typecheck 均已全數通過（exit 0）。
+- **tasks 4.3、4.4、5.1、5.2：保持未勾選（`[ ]`）**，待後續官方 dry-run 分組及全量套件執行。
+- 累計任務進度：**14/19** 已完成。
+
+### 13.6 官方分組全量測試判定（Go / No-Go）
+
+**判定：GO FOR OFFICIAL FULL GROUPED TEST RUN (task 4.3 / 4.4)**。
+理由：整合候選快照之所有前置檢查、建置、型別檢查及全部已知風險測試（含 148 修復測試、49 clone 回歸、52 摘要去重測試）皆在乾淨受控環境下取得真實 exit 0，且工作樹來源指紋完全凍結，具備進入分組全量選集測試之條件。本 session 依指示不自行啟動全量測試。
+
+
