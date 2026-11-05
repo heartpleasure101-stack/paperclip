@@ -19,6 +19,12 @@
 
 - [x] 2.8 修正第二輪複審的兩項 WARNING：每測試明確登記 executable／shell 形狀與自有 root，拒絕未知路徑命令、shell script、pipeline 或相對下載器；將同等保護套用 server 與 cursor-local 的全部假 sandbox runner，已知安裝只走無網路 stub；以無害字串／記錄 backend 重現四種繞過後證明拒絕，保留真實 fixture 執行及原斷言，再獨立複審。文件明確記錄 fake runner 依賴 clean-env、非 OS sandbox、SSH／Keychain 非隔離範圍及 signal 中止的清理限制，不擅自清理被拒的事故資料。
 
+- [x] 2.9 診斷 Phase 06 的離線 pnpm 解析：在自有複製快取對照未宣告／已宣告 packageManager 的暫存專案、記錄 Corepack 版本解析與禁網結果；優先只啟用已存在的隔離快取版本，不動主機 prefix／預設、不下載或放行網路。保留原 7 個 fixture case 恰好一次及故意失敗傳遞斷言，不增加 timeout、不改正式 runner；將自測與缺快取負向檢查放入昂貴流程前的文件步驟，獨立驗證後才恢復。重試另存失敗 attempt／manifest；確認同一 source／工具版本下既有通過組與 skips 不受影響，否則重跑受影響組。
+
+- [ ] 2.10 有界診斷 Phase 07 負載檔之請求進入／socket／排程狀態，對照單檔與並行資源；保持500請求、498 joins、兩個scan、500個200、25次health與p99<250ms及原15秒／60秒時限，不改產品／測試／runner或主機全域限制。若證明需資源隔離，以官方既有Vitest設定與串行參數組成原組的完整等價子組，核對無漏／重複、保存先前失敗與每個子組退出碼，獨立複審後才恢復；無源碼不變解法則先回報，不反覆重試到綠。
+
+- [ ] 2.11 在版本化修復工作樹只調整 file-resources-git-scan-load.test.ts 的TCP接受準備：小批次有界等待connection、不等待回應，維持500全部在途／零完成後才觀測、498joins／2scans／500個200、25health及p99<250ms；原15秒從第一負載請求起計含準備、60秒總限不變，保留故障時關閉連線／釋放Gate及立即觀察拒絕。不得採用maxSockets100降低實際負載、改產品／shared／runner或全域設定。驗證修正前後與負向清理，獨立複審後整合；逐組source/read-dependency等價清冊明確列真正測試commit，未知依賴／共享變更重跑受影響組，該檔及受影響全組必須新快照重跑，不冒稱舊結果已在新HEAD實跑。
+
 ## 3. GitHub enrollment 因果修復
 
 - [x] 3.1 在隔離快照取得 ack=0 的因果證據（工作者 poll 結果／errors、HTTP 階段、delivery 狀態、虛擬時鐘／真實 I/O）；有界證明是哪一階段未完成，記錄 real-timer 或受控延遲對照，禁止只延長等待。
@@ -27,7 +33,7 @@
 
 ## 4. 整合與完整覆蓋驗證
 
-- [ ] 4.1 將修復分支以一般 merge commit 整合進原摘要 branch，記錄兩個 PR、merge SHA 與修復／Pi source tree；只做本機 merge 與普通 push，不 merge GitHub PR、不 force-push。
+- [x] 4.1 將修復分支以一般 merge commit 整合進原摘要 branch，記錄兩個 PR、merge SHA 與修復／Pi source tree；只做本機 merge 與普通 push，不 merge GitHub PR、不 force-push。
 - [ ] 4.2 在不可變整合快照上通過 preflight、全部已知 blocker 及摘要去重相關回歸，再執行 typecheck/build；每項附退出碼，未通過則不跑昂貴全量。
 - [ ] 4.3 用官方 dry-run 取得完整入口及分組／分片 inventory，證明 chat、general excluding chat/native、native-runner、workspaces-a/b/c、serialized 無遺漏；依本機資源限制並行並保存實際選集。
 - [ ] 4.4 執行全部官方等價測試組，每組／shard 皆保留命令、退出碼、tests／skips、版本及 log；確認每個必要組 exit=0、無測試替身修補檔滲入或程式碼變動，保留先前失敗。任何未跑／被停止／失敗不得標記完成。
