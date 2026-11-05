@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
 import { execute } from "@paperclipai/adapter-cursor-local/server";
+import { createGuardedSandboxRunner } from "./helpers/sandbox-install-guard.js";
 
 // These fixtures verify command discovery, environment and real CLI execution.
 // Callback bridge startup/teardown has its own execution-target coverage; starting
@@ -106,38 +106,10 @@ async function fixtureRuntimeEnv(root: string): Promise<{ PATH: string }> {
   return { PATH: [binDir, process.env.PATH ?? ""].filter(Boolean).join(path.delimiter) };
 }
 
+// Every sandbox runner is guarded before any backend runs and executes the fixture CLI with
+// a secretless environment; see helpers/sandbox-install-guard.ts.
 function createLocalSandboxRunner() {
-  let counter = 0;
-  return {
-    execute: async (input: {
-      command: string;
-      args?: string[];
-      cwd?: string;
-      env?: Record<string, string>;
-      stdin?: string;
-      timeoutMs?: number;
-      onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
-      onSpawn?: (meta: { pid: number; startedAt: string }) => Promise<void>;
-    }) => {
-      counter += 1;
-      // Both sandbox fixtures install their fake CLI up front. Never fall back
-      // to a network install if discovery regresses on another host or shell.
-      if (input.args?.some(arg => arg.includes("curl https://cursor.com/install"))) {
-        throw new Error("Sandbox fixture did not discover its preinstalled Cursor CLI");
-      }
-      return await runChildProcess(`cursor-sandbox-execute-${counter}`, input.command, input.args ?? [], {
-        cwd: input.cwd ?? process.cwd(),
-        env: input.env ?? {},
-        stdin: input.stdin,
-        timeoutSec: Math.max(1, Math.ceil((input.timeoutMs ?? 30_000) / 1000)),
-        graceSec: 5,
-        onLog: input.onLog ?? (async () => {}),
-        onSpawn: input.onSpawn
-          ? async (meta) => input.onSpawn?.({ pid: meta.pid, startedAt: meta.startedAt })
-          : undefined,
-      });
-    },
-  };
+  return createGuardedSandboxRunner();
 }
 
 type CapturePayload = {
