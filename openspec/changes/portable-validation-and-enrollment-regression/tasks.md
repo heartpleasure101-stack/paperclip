@@ -21,9 +21,11 @@
 
 - [x] 2.9 診斷 Phase 06 的離線 pnpm 解析：在自有複製快取對照未宣告／已宣告 packageManager 的暫存專案、記錄 Corepack 版本解析與禁網結果；優先只啟用已存在的隔離快取版本，不動主機 prefix／預設、不下載或放行網路。保留原 7 個 fixture case 恰好一次及故意失敗傳遞斷言，不增加 timeout、不改正式 runner；將自測與缺快取負向檢查放入昂貴流程前的文件步驟，獨立驗證後才恢復。重試另存失敗 attempt／manifest；確認同一 source／工具版本下既有通過組與 skips 不受影響，否則重跑受影響組。
 
-- [ ] 2.10 有界診斷 Phase 07 負載檔之請求進入／socket／排程狀態，對照單檔與並行資源；保持500請求、498 joins、兩個scan、500個200、25次health與p99<250ms及原15秒／60秒時限，不改產品／測試／runner或主機全域限制。若證明需資源隔離，以官方既有Vitest設定與串行參數組成原組的完整等價子組，核對無漏／重複、保存先前失敗與每個子組退出碼，獨立複審後才恢復；無源碼不變解法則先回報，不反覆重試到綠。
+- [x] 2.10 有界診斷 Phase 07 負載檔之請求進入／socket／排程狀態，對照單檔與並行資源；保持500請求、498 joins、兩個scan、500個200、25次health與p99<250ms及原15秒／60秒時限，不改產品／測試／runner或主機全域限制。若證明需資源隔離，以官方既有Vitest設定與串行參數組成原組的完整等價子組，核對無漏／重複、保存先前失敗與每個子組退出碼，獨立複審後才恢復；無源碼不變解法則先回報，不反覆重試到綠。
 
-- [ ] 2.11 在版本化修復工作樹只調整 file-resources-git-scan-load.test.ts 的TCP接受準備：小批次有界等待connection、不等待回應，維持500全部在途／零完成後才觀測、498joins／2scans／500個200、25health及p99<250ms；原15秒從第一負載請求起計含準備、60秒總限不變，保留故障時關閉連線／釋放Gate及立即觀察拒絕。不得採用maxSockets100降低實際負載、改產品／shared／runner或全域設定。驗證修正前後與負向清理，獨立複審後整合；逐組source/read-dependency等價清冊明確列真正測試commit，未知依賴／共享變更重跑受影響組，該檔及受影響全組必須新快照重跑，不冒稱舊結果已在新HEAD實跑。
+- [x] 2.11 在版本化修復工作樹只調整 file-resources-git-scan-load.test.ts 的TCP接受準備：小批次有界等待connection、不等待回應，維持500全部在途／零完成後才觀測、498joins／2scans／500個200、25health及p99<250ms；原15秒從第一負載請求起計含準備、60秒總限不變，保留故障時關閉連線／釋放Gate及立即觀察拒絕。不得採用maxSockets100降低實際負載、改產品／shared／runner或全域設定。驗證修正前後與負向清理，獨立複審後整合；逐組source/read-dependency等價清冊明確列真正測試commit，未知依賴／共享變更重跑受影響組，該檔及受影響全組必須新快照重跑，不冒稱舊結果已在新HEAD實跑。
+
+- [ ] 2.12 有界重現Phase10之GIT_CONFIG_GLOBAL前提衝突，只修正github-launcher-environment.test.ts的自有host fixture：fake HOME內明確模擬無override，保留原undefined／helper=store／token／metadata／隔離斷言；新增自有含空格global config優先於HOME假helper的明確override案例，所有stub由afterEach還原，不接觸真實config／憑證／Keychain。禁止改共用clean-env／execution-target／runner／產品或全域設定；對照修正前後、三次全檔與相關安全回歸、typecheck、負向控制及獨立複審後整合。逐組真正測試commit與byte/read-dependency等價證據不改寫；未知依賴重跑，全17project Phase10必須在新不可變快照重跑，不以單檔／單project取代，保留失敗與11–15未執行狀態。
 
 ## 3. GitHub enrollment 因果修復
 

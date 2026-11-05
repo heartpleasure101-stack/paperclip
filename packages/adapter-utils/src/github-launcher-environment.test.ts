@@ -414,6 +414,7 @@ describe("managed GitHub launcher environment", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "paperclip-host-git-")); roots.push(root);
     vi.stubEnv("HOME", root);
     vi.stubEnv("GH_TOKEN", "legacy-token");
+    vi.stubEnv("GIT_CONFIG_GLOBAL", undefined);
     await writeFile(path.join(root, ".gitconfig"), '[credential]\n  helper = store\n');
     await exec("git", ["init", path.join(root, "repo")]);
     const env = await prepareGitHubExecutionEnvironment({ target: null, cwd: path.join(root, "repo"), env: {}, hostCredentials: true, networkAccess: true });
@@ -424,6 +425,39 @@ describe("managed GitHub launcher environment", () => {
     expect(config.stdout.trim()).toBe("store");
     const isolated = await prepareGitHubExecutionEnvironment({ target: null, cwd: root, env: {}, hostCredentials: false, networkAccess: false });
     expect(isolated.GH_TOKEN).toBeUndefined();
+    expect(isolated.PAPERCLIP_RUNNER_NETWORK_ACCESS).toBe("disabled");
+    expect(isolated.PAPERCLIP_GITHUB_HOST_HOME).toBeUndefined();
+  });
+
+  it("preserves explicit host GIT_CONFIG_GLOBAL overrides with spaces over HOME gitconfig", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "paperclip-host-git-")); roots.push(root);
+    const overrideDir = await mkdtemp(path.join(os.tmpdir(), "paperclip custom global config-")); roots.push(overrideDir);
+    const overrideConfig = path.join(overrideDir, "custom gitconfig with spaces");
+    await writeFile(path.join(root, ".gitconfig"), '[credential]\n  helper = home-fixture\n');
+    await writeFile(overrideConfig, '[credential]\n  helper = override-fixture\n');
+    await exec("git", ["init", path.join(root, "repo")]);
+    vi.stubEnv("HOME", root);
+    vi.stubEnv("GH_TOKEN", "synthetic-override-token");
+    vi.stubEnv("GIT_CONFIG_GLOBAL", overrideConfig);
+
+    const env = await prepareGitHubExecutionEnvironment({ target: null, cwd: path.join(root, "repo"), env: {}, hostCredentials: true, networkAccess: true });
+    expect(env.GH_TOKEN).toBe("synthetic-override-token");
+    expect(env.GIT_CONFIG_GLOBAL).toBe(overrideConfig);
+    expect(env.PAPERCLIP_GIT_METADATA_ROOTS).toContain("/repo/.git");
+
+    const config = await exec("git", ["config", "credential.helper"], { cwd: root, env: { ...process.env, ...env } });
+    expect(config.stdout.trim()).toBe("override-fixture");
+    expect(config.stdout.trim()).not.toBe("home-fixture");
+
+    // Negative control: clearing the explicit global override falls back to HOME's helper
+    const fallbackEnv = { ...process.env, ...env };
+    delete fallbackEnv.GIT_CONFIG_GLOBAL;
+    const fallback = await exec("git", ["config", "credential.helper"], { cwd: root, env: fallbackEnv });
+    expect(fallback.stdout.trim()).toBe("home-fixture");
+
+    const isolated = await prepareGitHubExecutionEnvironment({ target: null, cwd: root, env: {}, hostCredentials: false, networkAccess: false });
+    expect(isolated.GH_TOKEN).toBeUndefined();
+    expect(isolated.GIT_CONFIG_GLOBAL).toBeUndefined();
     expect(isolated.PAPERCLIP_RUNNER_NETWORK_ACCESS).toBe("disabled");
     expect(isolated.PAPERCLIP_GITHUB_HOST_HOME).toBeUndefined();
   });
