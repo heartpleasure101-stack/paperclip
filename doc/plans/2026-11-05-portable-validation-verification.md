@@ -743,6 +743,71 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
 - **task 4.2：重新標記完成，待獨立複審（Pending Independent Review）**：Preflight full、環境衛生單元測試、Phase 06 暴露之離線 blocker 均已全數通過。
 - **tasks 4.4、5.1、5.2：維持未完成（`[ ]`）**：在獨立複審者審查認可前，不重啟全量套件流程。
 
+---
+
+## 17. 儲存磁區連線修復、獨立審查結論、日誌歷程指標修正與後續全量恢復門禁
+
+### 17.1 儲存磁區連線恢復與不可變源碼身分核對
+
+`/Volumes/AI` 於前次中斷後已順利重連並恢復正常讀寫：
+- **Original Repo (`/Volumes/AI/projects/paprerclip-v2`):**
+  - Branch: `fix/pi-single-prompt-summary-dedup`
+  - 最新 HEAD: `c194161b8d9b8f098ef7481480cad1dade1834e1`
+  - 工作目錄：乾淨（0 dirty entries）
+- **Frozen Local Snapshot (`/private/tmp/paperclip-portable-validation`):**
+  - HEAD: `cc56bbcd30a7de1a78a92b108dba772d3c02a500`
+  - Tracked Tree: `37295d5b275b63408b4c9d57ad9c76382c1f18e7`
+  - 狀態：完全乾淨（`git status --porcelain` 為空）
+  - 所有應用程式、測試與替身程式碼雜湊完全未變動，無任何未追蹤原始碼或暫存污染。
+
+### 17.2 獨立 Corepack 離線審查結論與選集核驗釐清
+
+獨立審查報告已由 `/private/tmp/pv-corepack-review/2026-11-05-corepack-offline-review.md` 位元組精確複製至 `doc/plans/2026-11-05-corepack-offline-review.md`，經 SHA-256 核對為 `f4150881b939515737a9c9d735ae734502ec96dfd7464aca9a751d6a9f82d364`，結論維持不變：
+- **Task 2.9 (Phase 06 離線 pnpm 解析與控制項):** **GO (通過)**
+- **Task 4.2 (整合快照 Preflight 與 Blocker 回歸):** **GO (通過)**
+- **Phases 01–05 保留重用 (Reuse Assessment):** **GO (核准重用)**
+- **Phases 06–15 恢復執行 (Resume Execution):** **GO (核准恢復)**
+
+**核驗與選集釐清說明：**
+1. **General-chat 測試檔案範圍：** 官方 dry-run 與 inventory 清單顯示，General-chat 群組（Phase 01–03）每次調用僅執行 `chat-channels.integration.test.ts` 兩次（內部 shard 0 與 1），並未執行 `chat-channel-sync.test.ts`。獨立審查報告中提及後者為少數選集描述筆誤，實際執行與 inventory proof 清單完全一致。
+2. **Chat 測試總數與 Skip 原因：** 累計執行測試數為 574 + 653 + 611 = 1838 tests；累計 9190 skipped tests 確為 Vitest chat line-filtering 排除之測試（每次僅執行指定行號，其餘由 Vitest 標記為 skipped），與 Corepack 無涉。
+3. **Phase 04–05 重用安全性：** 經全量檢驗 Phase 04 與 05 選中之 712 個測試檔案，僅 3 個檔案出現 pnpm 字樣，全數為字串匹配或 stub mock，無呼叫二進位檔；所有測試皆在根專案已宣告 `packageManager` 下運行，先前 exit 0 行為具備絕對可重用性。
+
+### 17.3 運維日誌指標修復與 Warning 1 處置
+
+針對獨立審查報告之 Warning 1（日誌別名覆蓋風險）與 Suggestion 1（ANSI 控制字元解析），已完成全面修正與防護：
+1. **獨立保存 Attempt 1 失敗日誌：**
+   - 將原 `phase-06-general-server-shard-2.log` 複製為專用檔 `phase-06-general-server-shard-2.attempt1.log`。
+   - 同步鏡像至 `/private/tmp/pv-full/attempt1/logs/phase-06-general-server-shard-2.attempt1.log`。
+   - 雙方 SHA-256 均精確吻合 `7de8d29a6a07f1cc7431d5ca0faa3bfca3f941b07d8405d68c821d1a65a9758e`。
+2. **Manifest 歷程指標修正：**
+   - 於 `/private/tmp/pv-full/manifests/phase-manifest.json` 與鏡像 `/private/tmp/pv-full/phase-manifest.json` 中，為 Phase 06 建立 immutable attempts 陣列，明確使 `attempts[0].logPath` 指向專用路徑 `/private/tmp/pv-full/logs/phase-06-general-server-shard-2.attempt1.log`。
+   - 保留原 Attempt 1 備份目錄不動，確保後續 Attempt 2 寫入最新別名檔時，失敗歷史指針不被覆蓋或遺失。
+3. **運維執行器安全改進 (`/private/tmp/pv-full/run-phases.mjs`):**
+   - 備份前版腳本為 `run-phases.mjs.sha102575ac`。
+   - 新版執行器（SHA-256: `3e3e842cec91823a8ff9081ba6dbd1974162903ff4ea593b3038808ab10b570f`）引入 `node:util` 之 `stripVTControlCharacters` 解析 Vitest ANSI 控制碼。
+   - 完整維持官方參數（`fullArgv`）、安靜控制台輸出（30 秒進度心跳）、raw bytes 串流寫入並等待關閉、精確信號與退出碼映射、執行前後源碼不可變防護（`checkFrozenCode`）。
+   - 經本機 ANSI 解析測試與 fake child 流程驗證，各項 metadata 與歷程記錄皆運作正確。
+
+### 17.4 重連後聚焦測試與 Preflight 驗證結果
+
+在不可變凍結快照（HEAD `cc56bbcd30a7`）上以正式隔離環境配方執行：
+1. **全量 Preflight 檢驗：**
+   - 命令：`validation-clean-env.mjs ... -- validation-preflight.mjs --stage full`
+   - 結果：**PASSED (exit 0)**，10/10 PASS。
+2. **聚焦測試 (`server/src/__tests__/vitest-chat-shards.test.ts`):**
+   - 命令：`validation-clean-env.mjs ... -- pnpm --filter @paperclipai/server exec vitest run src/__tests__/vitest-chat-shards.test.ts`
+   - 結果：**PASSED (exit 0)**，耗時 7.23s。原 7 個 exact-once 案例與故意失敗傳遞斷言全數通過。
+3. **單元測試 (`validation-clean-env.test.mjs` & `validation-preflight.test.mjs`):**
+   - 結果：**19 passed, 0 failed**。
+
+### 17.5 任務狀態推進
+
+- **task 2.9 (Phase 06 離線 Corepack pnpm 解析):** **[x] 已完成**。
+- **task 4.2 (不可變快照 Preflight 與 Blocker 回歸):** **[x] 已完成**。
+- 目前 20 項任務中已完成 17 項，僅剩餘 task 4.4（全量官方等價套件執行）與 task 5.1/5.2（獨立驗證交付）。
+
+
 
 
 
