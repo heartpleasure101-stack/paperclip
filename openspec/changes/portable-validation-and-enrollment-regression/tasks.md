@@ -23,7 +23,7 @@
 
 - [x] 2.10 有界診斷 Phase 07 負載檔之請求進入／socket／排程狀態，對照單檔與並行資源；保持500請求、498 joins、兩個scan、500個200、25次health與p99<250ms及原15秒／60秒時限，不改產品／測試／runner或主機全域限制。若證明需資源隔離，以官方既有Vitest設定與串行參數組成原組的完整等價子組，核對無漏／重複、保存先前失敗與每個子組退出碼，獨立複審後才恢復；無源碼不變解法則先回報，不反覆重試到綠。
 
-- [ ] 2.11 在版本化修復工作樹只調整 file-resources-git-scan-load.test.ts 的TCP接受準備：小批次有界等待connection、不等待回應，維持500全部在途／零完成後才觀測、498joins／2scans／500個200、25health及p99<250ms；原15秒從第一負載請求起計含準備、60秒總限不變，保留故障時關閉連線／釋放Gate及立即觀察拒絕。不得採用maxSockets100降低實際負載、改產品／shared／runner或全域設定。驗證修正前後與負向清理，獨立複審後整合；逐組source/read-dependency等價清冊明確列真正測試commit，未知依賴／共享變更重跑受影響組，該檔及受影響全組必須新快照重跑，不冒稱舊結果已在新HEAD實跑。
+- [x] 2.11 在版本化修復工作樹只調整 file-resources-git-scan-load.test.ts 的TCP接受準備：小批次有界等待connection、不等待回應，維持500全部在途／零完成後才觀測、498joins／2scans／500個200、25health及p99<250ms；原15秒從第一負載請求起計含準備、60秒總限不變，保留故障時關閉連線／釋放Gate及立即觀察拒絕。不得採用maxSockets100降低實際負載、改產品／shared／runner或全域設定。驗證修正前後與負向清理，獨立複審後整合；逐組source/read-dependency等價清冊明確列真正測試commit，未知依賴／共享變更重跑受影響組，該檔及受影響全組必須新快照重跑，不冒稱舊結果已在新HEAD實跑。
 
 ## 3. GitHub enrollment 因果修復
 
