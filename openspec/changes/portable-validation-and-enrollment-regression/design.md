@@ -8,6 +8,7 @@
 - Muse Python fixture 在 `HTTPError(..., fp=None)` 後呼叫 `close()`，Python 3.9.6 在 tempfile 產生 KeyError；相同合約用 Python 3.12 通過。v1–v9 Muse assets 有固定 byte pins，不應為測試修改。
 - `github-connection-enrollment-work.test.ts` 在原版與修改版皆 ack=0。案例同時使用凍結 Date／setTimeout、真實 PostgreSQL、真實 loopback HTTP；`observe` 固定 Date、只 yield I/O。相鄰 work suite 的時鐘策略不同，但這僅是診斷線索，尚非根因證據。
 - 官方 runner 已支援 dry-run 選集、duration-aware 分片、獨立 native-runner 組；無分片的 general-server 會將昂貴真實 lease 測試串行執行。既有 native-runner 組以四個隔離 fork 重疊等待，無須發明新測試 runner。
+- tasks 1–3 的獨立審查確認一次未提交的診斷 probe 違反禁網路安裝限制：Cursor installer 確實在暫存 fake HOME 安裝並執行 binary，且留下真實 TMPDIR log。未發現仍在執行的程序或真實 HOME 的 Cursor 安裝；但繼承環境與網路傳輸無完整事前紀錄，不能保證沒有憑證暴露。保留事故證據、不讀取 secret 值、不自行輪替憑證或繞過被拒絕的刪除；先修補 guard 與紀錄，再進整合。
 
 ## Goals / Non-Goals
 
@@ -17,11 +18,13 @@
 
 ## Decisions
 
-1. **修正替身，而非放寬正式執行環境。** 優先在 fake HOME 的 `.local/bin` 為替身提供實際測試 Node（由 `process.execPath` 識別）；使用真實 CLI 執行與既有捕捉斷言，不透過外部 spawn monkeypatch。避免絕對 shebang 在含空白路徑失效；fixture 建立與清理皆限自身暫存目錄。缺失命令仍必須被測出，不接觸網路安裝 Cursor。
+1. **修正替身，而非放寬正式執行環境。** 優先在 fake HOME 的 `.local/bin` 為替身提供實際測試 Node（由 `process.execPath` 識別）；使用真實 CLI 執行與既有捕捉斷言，不透過外部 spawn monkeypatch。避免絕對 shebang 在含空白路徑失效；fixture 建立與清理皆限自身暫存目錄。缺失命令仍必須被測出，不接觸網路安裝 Cursor。此限制也適用所有臨時診斷與 mutation；不得為取得 stderr 移除安裝 guard。guard 必須在執行前檢查 command、args 與可執行 stdin，拒絕 installer URL、curl/wget 與未知安裝形式，不能只依賴複製的單一字面字串。guard 回歸／mutation 僅可使用無網路的本機 sentinel，禁止讓真實下載器成為反例。
 2. **修正模擬回應的生命週期。** 使用可關閉的合成回應串流來建構 HTTPError，覆蓋 Python 3.9 與可用較新版本。與強迫升級主機 Python 相比，這保留既有 runtime 相容性；只改 fixture，不改 client.py 或 pins。
 3. **enrollment 先因果診斷、後最小修復。** Sonnet 在隔離快照內重現並暫時蒐集 poll 結果、errors、HTTP 路由、receipt 狀態、排程／時鐘與身分階段，形成可核對診斷。若只是虛擬時鐘阻塞真實 I/O，修正測試的有界協調與診斷；若相同契約在真實時鐘／受控依賴下也失敗，才修正 event/enrollment 的最小擁有者並加失敗前後證據。禁止只加等待、刪斷言、關閉驗證、改全域 scheduler 或新增輪詢。這是事先定義的修復選擇規則，不預設未知根因。
-4. **輕量 preflight，不新建框架。** 使用既有 Node 和標準庫增加小型唯讀檢查入口及文件，記錄工具位置／版本、Node engine、Git 必要 `rev-list --stdin --not` 能力與當次階段需要的 Rust／Python。Git 能力在自有暫存 repo 探測後清理；缺項非零退出，無下載／全域安裝。工具可由 session PATH 或明確路徑供應，不以「只有本機絕對路徑可用」作為交付。
-5. **先通過所有 blocker，再跑昂貴完整驗收。** Cursor、Muse、enrollment 與相關回歸及 preflight 都通過後，封存程式碼身分並跑全量 typecheck/build。完整 tests 使用官方 dry-run inventory 與既有模式：chat；general-server-without-chat-or-native-runner；general-server-native-runner；workspaces-a/b/c；serialized。依記憶體選擇保守並行／分片，不改 runner 的選集或 skip 規則。記錄所有 shard 指標與退出碼，證明聯集等同完整入口；不得以 driver 最後 echo 的 exit 0 代替每組結果。此 CI 等價全覆蓋可作為兩個 change 的完整驗收，不要求重新把已驗證的同一不可變快照用最慢單一入口再跑一次。
+4. **輕量 preflight，不新建框架。** 使用既有 Node 和標準庫增加小型唯讀檢查入口及文件，記錄工具位置／版本、Node engine、Git 必要 `rev-list --stdin --not` 能力與當次階段需要的 Rust／Python。Git 能力在自有暫存 repo 探測後清理；缺項非零退出，無下載／全域安裝。工具可由 session PATH 或明確路徑供應，不以「只有本機絕對路徑可用」作為交付。子程序的 Corepack probe 禁止網路取得工具、Git 設定 optional locks 關閉；暫存目錄無法建立等失敗仍須提供可機讀的非零結果，不以 uncaught stack 代替診斷。
+5. **先通過所有 blocker，再跑昂貴完整驗收。** Cursor、Muse、enrollment 與相關回歸及 preflight 都通過後，封存程式碼身分並跑全量 typecheck/build。完整驗證子行程使用明確環境 allowlist 與自有暫存 HOME／PAPERCLIP_HOME（例如 env -i 的可重現命令），只傳工具路徑、必要 cache 與測試設定，不傳 provider/API 憑證或個人設定；父 Pi/agy 的模型認證不變。以假 sentinel 證明變數未繼承，不讀取真實秘密。已存在的 pnpm/cache 可明確配置，但禁止 Corepack 自動下載、禁止沿用外部 NODE_OPTIONS monkeypatch。這是程序環境隔離，不是假稱 OS sandbox。
+
+   完整 tests 使用官方 dry-run inventory 與既有模式：chat；general-server-without-chat-or-native-runner；general-server-native-runner；workspaces-a/b/c；serialized。依記憶體選擇保守並行／分片，不改 runner 的選集或 skip 規則。記錄所有 shard 指標與退出碼，證明聯集等同完整入口；不得以 driver 最後 echo 的 exit 0 代替每組結果。此 CI 等價全覆蓋可作為兩個 change 的完整驗收，不要求重新把已驗證的同一不可變快照用最慢單一入口再跑一次。
 6. **版本與交付分離。** Sonnet 從 master 建立獨立 baseline 修復分支及 fork PR（與原摘要 PR 分開）。可用本機工作樹保存 parent 已撰寫的本 change 與必要相同 OpenSpec 初始化設定。完成窄範圍修復後，以一般 merge commit 整合到摘要分支，留下來源 commit 與兩個 PR 的關聯；不 force-push、不透過 GitHub merge。只對該整合 HEAD 跑一次完整驗收，程式碼不變時可在純文件／封存 commit 後以 tree 比對延續證據。不能把整合 HEAD 結果標成獨立 master 沒有差異。
 7. **獨立驗證及封存門檻。** 新的 Sonnet session 檢查根因、spec scenario 映射、原斷言、preflight、所有組的覆蓋與退出碼。驗收通過後更新本 change 及原摘要 tasks／驗證紀錄，依 CLI archive 同步 specs，修正封存後文件連結並 push。任何必要組失敗／未跑，不封存、不移除 draft。原摘要嚴格相等與 Pi-only 規格不變。
 

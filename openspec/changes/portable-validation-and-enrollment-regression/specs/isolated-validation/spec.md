@@ -38,6 +38,14 @@
 - **WHEN** 明確指定暫存或既有工具路徑且能力檢查通過
 - **THEN** 輸出實際路徑、版本與檢查結果，不要求將工具安裝進主機共用目錄
 
+### Requirement: Secret-free acceptance subprocesses
+
+完整驗證的子行程 SHALL 只接收明確列出的工具與測試設定，以及測試自身產生的假資料；SHALL NOT 繼承主機的 provider/API 金鑰或個人 HOME 設定。此隔離不得變更父 agent 的授權或主機全域設定，亦不得宣稱等同作業系統 sandbox。
+
+#### Scenario: 主機存在額外憑證環境變數
+- **WHEN** 父行程有額外的憑證變數，而驗證子行程啟動
+- **THEN** 子行程不含這些變數，使用自己的 HOME／Paperclip 設定目錄，仍能取得明確配置的必要工具；驗證只用 sentinel 證明隔離，不讀取或輸出真實秘密
+
 ### Requirement: Complete and auditable acceptance coverage
 
 完整驗收 SHALL 綁定不可變程式碼快照並覆蓋官方完整測試選集。官方等價分組／分片可使用，但每個必要組均 SHALL 有退出結果與選集覆蓋證據；任何失敗、中止或未執行項目 SHALL 保留且不得稱為完整通過。
