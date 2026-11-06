@@ -1192,3 +1192,78 @@ b5eb0b479ac2200f3722c755c66374c60958a446f74858875af1e62963d7c24d  packages/adapt
   - **Task 5.1 最終交付門檻：** **NO-GO**。
   - **嚴格禁止自我認證：** 不自封存、不移除 draft、不 merge GitHub PR、不 push。
 
+
+
+## 21. Phase 10 Attempt 4 完整執行、17 專案全數通過與門禁判定
+
+### 21.1 執行背景與授權機制（Hardened Controller & Atomic Claim）
+
+依據 R3 獨立審查報告（`doc/plans/2026-11-06-phase10-hardening-r3-independent-review.md`）之審查合格判定與條件式授權（Conditional GO），父層正式授權單次執行 Phase 10 Attempt 4：
+- **R3 硬化控制器（SHA-256: `9de644399adc7ac8b2468f95155a16400e27269c1353c2888ad031a53a94bfd0`）：** 具備強型別欄位非空校驗、真實 Git 物件雙向防偽造校驗、固定目錄排他登記簿、參數邊界 JSON 陣列雜湊與日誌前置排他建立（`wx`）。
+- **審計修復提案套用：** 將經獨立審查之 `phase-manifest.proposal.json`（SHA-256: `6273d9b783a904f8cf9bb596baf3c5949408f174fb14fdd966b0107f1e38d679`）精確套用至 live（`/private/tmp/pv-full/manifests/phase-manifest.json`）與 mirror（`/private/tmp/pv-full/phase-manifest.json`），修正 Git Tree 為真實值 `faa45f1d9342a834539a76c8f9d26015cf263710`，附帶 `metadataCorrections` 審計詮釋資料，並於專屬操作目錄 `/private/tmp/pv-phase10-attempt4-operation/` 以 `wx` 排他保留原 DAB8 備份。
+- **單次專屬授權憑證：** 建立專屬單次授權檔（`run-authorization.attempt4.json`），綁定 Token ID `auth-phase10-attempt4-20261106-bound-r3-op4`、`argvDigest: 3d00eadc828c0bd3fa72d997c93a21272214e0ec4f63f925953488a705b57fe9`、`toolMatrixDigest: 953b2787d6aa4e4b38d1ef7b3d063bafd20e50f27a8bff4007ec0c64c81506b7`。控制器原子建立 `/private/tmp/pv-full/logs/.authorization-claims/auth-phase10-attempt4-20261106-bound-r3-op4.claim.json` 並完成持久化標記。
+
+### 21.2 執行環境與快照不可變性
+
+| 項目 | 實際值 / 狀態 | 驗證評定 |
+| :--- | :--- | :---: |
+| **工作區快照目錄** | `/private/tmp/pv-git-env-fixture-fix` | 乾淨、不可變 |
+| **實際 Git HEAD** | `56d517eeffd24287161329b2f86595dcdef4d165` | 符合授權與提案 |
+| **實際 Git Tree** | `faa45f1d9342a834539a76c8f9d26015cf263710` | 吻合真實物件 |
+| **Git 工作區狀態** | `git status --porcelain` 為空（Clean） | 0 uncommitted |
+| **24 項源碼指紋** | Pi（5 檔）+ PV（19 檔）100% 吻合 Manifest 記錄 | 24/24 PASS |
+| **SDK dist 產物** | `packages/plugins/sdk/dist` 97 個檔案與 `3f1` 快照 byte-identical | 97/97 PASS |
+| **執行工具鏈** | Node 24.18.0, Git 2.56.0, Cargo 1.97.1, Corepack LKG, Python 3.15.2 | 吻合 toolMatrix |
+| **Python 邊界** | 僅在 Phase 10 fullArgv 載入私有 `python-bin`（Python 3.15.2），全域未改 | 作用域鎖定 |
+
+### 21.3 歷史日誌不可變性與 115KB 斷層保留
+
+- **Attempt 1 原始日誌：** `/private/tmp/pv-full/logs/phase-10-general-workspaces-b.attempt1.log`，99,074 bytes，SHA-256: `707f0aa8c597937e33144b4bfdc3e71556ee5f9df765758d8db85f5548ab5dc0`（100% 鎖定未改動）。
+- **Attempt 2 原始日誌：** `/private/tmp/pv-full/logs/phase-10-general-workspaces-b.attempt2.log`，152,544 bytes，SHA-256: `362cae7efbc80b222417fa8b744a16888bf6d981dd3375a833fb0aa9e0a8a4c4`（100% 鎖定未改動）。
+- **Canonical Alias 日誌：** `/private/tmp/pv-full/logs/phase-10-general-workspaces-b.log`，152,544 bytes，SHA-256: `362cae7efbc80b222417fa8b744a16888bf6d981dd3375a833fb0aa9e0a8a4c4`（防覆寫安全機制生效，保持 Attempt 2 歷史，指向 raw attempt4）。
+- **115KB 原始毀損日誌：** 2026-11-05 21:54 因前次違規重跑被覆寫之 115,142 bytes 原始 child stdout 誠實保留斷層標記 `UNKNOWN / IRRECOVERABLE`，外部還原佐證封存於 `/private/tmp/pv-phase10-attempt-audit/`，絕不偽造 raw。
+- **Attempt 4 全新獨立日誌：** `/private/tmp/pv-full/logs/phase-10-general-workspaces-b.attempt4.log`，175,555 bytes，SHA-256: `742e5ed11767ce8ab6d72af0d9b9771e0af2a62f2fb90881b871cef931869f52`。
+
+### 21.4 17 專案完整執行指標清冊（All 17 Projects Metrics）
+
+Phase 10 Attempt 4 於真實 Clean-env 下依官方清冊順序執行全部 17 個專案，17 個專案**全數以 exit 0 通過**：
+
+| 序號 | 專案名稱 | 測試檔案結果 | 測試案例結果 | 耗時與佔比 | 退出碼 |
+| :---: | :--- | :--- | :--- | :--- | :---: |
+| 1 | `@paperclipai/shared` | 97 passed, 0 skipped (97) | 1052 passed, 0 skipped (1052) | 7.57s (tests 36%, transform 34%, import 29%) | 0 |
+| 2 | `@paperclipai/skills-catalog` | 5 passed, 0 skipped (5) | 20 passed, 0 skipped (20) | 1.61s (transform 46%, tests 30%, import 23%) | 0 |
+| 3 | `@paperclipai/adapter-utils` | 87 passed, 0 skipped (87) | 2087 passed, 12 skipped (2099) | 83.65s (tests 90%, transform 5%, import 5%) | 0 |
+| 4 | `@paperclipai/adapter-claude-local` | 23 passed, 1 skipped (24) | 379 passed, 1 skipped (380) | 33.50s (tests 60%, transform 21%, import 19%) | 0 |
+| 5 | `@paperclipai/adapter-codex-local` | 31 passed, 0 skipped (31) | 578 passed, 1 skipped (579) | 21.32s (tests 56%, import 26%, transform 17%) | 0 |
+| 6 | `@paperclipai/adapter-cursor-cloud` | 4 passed, 0 skipped (4) | 22 passed, 0 skipped (22) | 1.35s (transform 70%, import 28%, tests 1%) | 0 |
+| 7 | `@paperclipai/adapter-cursor-local` | 5 passed, 0 skipped (5) | 21 passed, 0 skipped (21) | 5.01s (transform 49%, import 27%, tests 24%) | 0 |
+| 8 | `@paperclipai/adapter-gemini-local` | 7 passed, 0 skipped (7) | 69 passed, 0 skipped (69) | 4.45s (transform 54%, import 28%, tests 18%) | 0 |
+| 9 | `@paperclipai/adapter-grok-local` | 12 passed, 0 skipped (12) | 149 passed, 0 skipped (149) | 3.83s (transform 44%, tests 33%, import 23%) | 0 |
+| 10 | `@paperclipai/hermes-paperclip-adapter` | 10 passed, 0 skipped (10) | 174 passed, 0 skipped (174) | 10.61s (transform 39%, tests 38%, import 22%) | 0 |
+| 11 | `@paperclipai/adapter-kimi-local` | 8 passed, 0 skipped (8) | 76 passed, 0 skipped (76) | 3.31s (transform 64%, import 35%, tests 1%) | 0 |
+| 12 | `@paperclipai/adapter-openclaw-gateway` | 3 passed, 0 skipped (3) | 19 passed, 0 skipped (19) | 1.59s (transform 71%, import 29%, tests 1%) | 0 |
+| 13 | `@paperclipai/adapter-opencode-local` | 7 passed, 0 skipped (7) | 88 passed, 0 skipped (88) | 4.14s (transform 62%, import 35%, tests 3%) | 0 |
+| 14 | `@paperclipai/adapter-pi-local` | 7 passed, 0 skipped (7) | 67 passed, 0 skipped (67) | 2.30s (transform 66%, import 29%, tests 5%) | 0 |
+| 15 | `@paperclipai/plugin-daytona` | 11 passed, 3 skipped (14) | 520 passed, 26 skipped (546) | 15.23s (tests 50%, transform 32%, import 18%) | 0 |
+| 16 | `@paperclipai/plugin-sdk` | 15 passed, 0 skipped (15) | 200 passed, 0 skipped (200) | 2.99s (transform 62%, import 36%, tests 2%) | 0 |
+| 17 | `@paperclipai/create-paperclip-plugin` | 1 passed, 0 skipped (1) | 2 passed, 0 skipped (2) | 122ms (tests 54%, transform 28%, import 14%) | 0 |
+| **合計** | **全 17 專案** | **333 passed, 4 skipped (337)** | **5523 passed, 40 skipped (5563)** | **212.4s (3 分 32 秒)** | **0 (PASSED)** |
+
+### 21.5 前期 Phase 1–9 等價性與未執行 Phase 11–15 隔離
+
+1. **Phase 1–9 源碼等價性保護：**
+   - Phases 1–6 快照記錄保持真正測試 commit `cc56bbcd...`。
+   - Phases 7–9 快照記錄保持真正測試 commit `3f1eb1b7...`。
+   - 本次 Phase 10 Attempt 4 執行於 `56d517eeffd24287161329b2f86595dcdef4d165`，未重新標記或污染任何 1–9 歷史快照標籤。
+2. **Phase 11–15 嚴格維持未執行（NOT_RUN）：**
+   - 依使用者最高規範，本 slice 授權範圍僅限單次 Phase 10。
+   - Phase 11 (`general-workspaces-c`)、Phase 12–15 (`serialized-shard-0` 至 `3`) 全數保持未執行狀態（狀態為 `NOT_RUN`，0 次 attempt，0 bytes log）。
+   - 嚴格禁止任何跨 Phase 自動推進。未來由後續維運人員另行綁定真實 56d 授權後執行。
+
+### 21.6 任務進度與門禁判定（Tasks Status & Gate Decision）
+
+- **Task 2.12：** `[x]` **已完成**（Phase 10 全部 17 個專案在新快照 `56d517ee` 上全數以 exit 0 通過，`github-launcher-environment.test.ts` 斷言完全滿足）。
+- **Task 2.13：** `[x]` **已完成**（歷史三次 Attempt 歷程與 115KB 斷層完成審計揭露，R3 硬化控制器完成負向測試驗證，Python 3.15 專屬工具鏈與作用域工具矩陣綁定完成，單次 Attempt 4 全量通過）。
+- **Task 4.2 / 4.3：** `[ ]` **PENDING**（全庫 typecheck/build 及全量 15 組驗收未在此 slice 執行，維持待辦）。
+- **Task 4.4 / 5.1 / 5.2：** `[ ]` **STRICT NO-GO / PENDING**（Phases 11–15 從未執行，全量 15 組尚未完成，等待後續獨立最終驗收）。
+- **自我約束：** 絕不自我認證、不自封存、不移除 draft、不 push。
