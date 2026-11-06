@@ -31,6 +31,8 @@
 
 - [x] 2.14 有界唯讀診斷Phase12 maintenance-server-routes前置build的COPILOT_INSTALLATION_INVALID：核對目前與舊快照之provider-assets、closure manifest／pins、package owner及symlink／缺檔差異，不下載或執行真實Copilot／Cursor、不改pins／verifier／測試／正式source。若可由已存在且驗證完整的pinned cache解決，先記錄來源／逐檔hash、保留失敗資產，提出自有ignored產物的離線準備方案，獨立GO後才實施與前置build；需要下載、真實CLI或變更產品時先停並要求新決策。完整保留Phase12 attempt1及後續NOT_RUN，按R3單次授權與新attempt恢復全原組，不弱化驗證或以跳過maintenance suite取得通過。
 
+- [x] 2.15 修正最終獨立審查的必需native覆蓋缺口：在同一56d凍結source以既有Rust1.97離線編譯fake-codex-app-server debug fixture，確認realProcessIt所需runner與fixture兩個實體皆存在、cache與binary來源可核對，不改任何test／skip條件／產品。保留Phase08舊163pass／23skip歷史，新單次R3授權在56d重跑完整9suites，確實執行先前缺fixture跳過的9項；僅容器14項等已證明不適用條件可另列，不將缺fixture稱為合法跳過。修正author報告的3f1 commit／tree、chat檔名及指紋／skip範圍，peer報告保持原bytes並附勘誤；完整結果交新獨立複審，不以15個exit0標籤冒充必要能力全覆蓋。
+
 ## 3. GitHub enrollment 因果修復
 
 - [x] 3.1 在隔離快照取得 ack=0 的因果證據（工作者 poll 結果／errors、HTTP 階段、delivery 狀態、虛擬時鐘／真實 I/O）；有界證明是哪一階段未完成，記錄 real-timer 或受控延遲對照，禁止只延長等待。

@@ -146,9 +146,9 @@
 | `phase-04-general-server-shard-0` | general-server (shard 0) | 0 | **PASSED** | 0 | 1242.1s | 351/0/5/356 | 7256/0/15/7271 | `cc56bbcd30a7...` |
 | `phase-05-general-server-shard-1` | general-server (shard 1) | 1 | **PASSED** | 0 | 1378.0s | 348/0/8/356 | 6440/0/78/6518 | `cc56bbcd30a7...` |
 | `phase-06-general-server-shard-2` | general-server (shard 2) | 2 | **PASSED** | 0 | 837.9s | 350/0/6/356 | 6288/0/135/6423 | `cc56bbcd30a7...` |
-| `phase-07-general-server-shard-3` | general-server (shard 3) | 3 | **PASSED** | 0 | 929.7s | 350/0/6/356 | 9946/0/49/9995 | `3f1917f30018...` |
-| `phase-08-general-server-native-runner` | general-server-native-runner | - | **PASSED** | 0 | 318.8s | 7/0/2/9 | 163/0/23/186 | `3f1917f30018...` |
-| `phase-09-general-workspaces-a` | general-workspaces-a (UI, CLI) | - | **PASSED** | 0 | 283.1s | 929/0/0/929 | 11113/0/0/11113 | `3f1917f30018...` |
+| `phase-07-general-server-shard-3` | general-server (shard 3) | 3 | **PASSED** | 0 | 929.7s | 350/0/6/356 | 9946/0/49/9995 | `3f1eb1b7b364...` |
+| `phase-08-general-server-native-runner` | general-server-native-runner | - | **PASSED** | 0 | 318.8s (att1) / 262.9s (att2) | 9/0/0/9 (att2) | 172/0/14/186 (att2) | `3f1eb1b7b...` (att1) / `56d517ee...` (att2) |
+| `phase-09-general-workspaces-a` | general-workspaces-a (UI, CLI) | - | **PASSED** | 0 | 283.1s | 929/0/0/929 | 11113/0/0/11113 | `3f1eb1b7b364...` |
 | `phase-10-general-workspaces-b` | general-workspaces-b (17 pkgs) | - | **PASSED** | 0 | 212.4s | 333/0/4/337 | 5523/0/40/5563 | `56d517eeffd2...` |
 | `phase-11-general-workspaces-c` | general-workspaces-c (db) | - | **PASSED** | 0 | 125.9s | 72/0/0/72 | 313/0/0/313 | `56d517eeffd2...` |
 | `phase-12-serialized-shard-0` | serialized routes (shard 0) | 0 | **PASSED** | 0 | 302.0s | 8/0/0/8 | 89/0/0/89 | `56d517eeffd2...` |
@@ -171,7 +171,7 @@
    - **聯集加總：** 8 + 42 + 58 + 58 = **166 suites**。與官方 dry-run `selectedSerializedSuites`（166 suites）100% 吻合，分片間重疊為 0，無任何遺漏。
 
 2. **General Server 全量聯集證明 (1,434 套件)：**
-   - Chat suite (Phases 01–03): 1 套件（`server/src/__tests__/chat-channel-routes.test.ts`），內部以 6 個分片覆蓋。
+   - Chat suite (Phases 01–03): 1 套件（`server/src/__tests__/chat-channels.integration.test.ts`），內部以 6 個分片覆蓋。
    - Native Runner (Phase 08): 9 套件。
    - Server without chat or native runner (Phases 04–07): 4 個分片各 356 套件 = 1,424 套件。
    - **聯集加總：** 1 + 9 + 1,424 = **1,434 suites**。與官方 dry-run 全量 General Server 1,434 suites 完全吻合，分片間重疊為 0。
@@ -199,25 +199,35 @@
    - Phase 02: 3,023 項跳過
    - Phase 03: 3,065 項跳過
    - **加總：** 3,102 + 3,023 + 3,065 = **9,190 項**。
-   - **性質判定：** 這是 Vitest `--shard-count=6` 針對單一超大測試檔（`chat-channel-routes.test.ts`）進行行範圍過濾時，非本分片分配到的案例被標記為 skip。6 個分片累計通過 1,838 項測試，完全覆蓋該檔所有案例。此為分片過濾機制，並非功能跳過。
+   - **性質判定：** 這是 Vitest `--shard-count=6` 針對單一超大測試檔（`chat-channels.integration.test.ts`）進行行範圍過濾時，非本分片分配到的案例被標記為 skip。6 個分片累計通過 1,838 項測試，完全覆蓋該檔所有案例。此為分片過濾機制，並非功能跳過。
 
-2. **Native Runner 兩項跳過原因（Phase 08）：**
-   - 跳過檔案 1：`server/src/services/native-runtime/native-runner-restart-diskless.integration.test.ts`（2 項測試跳過）
-   - 跳過檔案 2：`server/src/services/native-runtime/native-runner-restart-checkpoint-cost.integration.test.ts`（1 項測試跳過）
-   - **真實成因定位：** 兩檔案皆依賴 `fake-codex-app-server` 測試 mock 二進位檔。依 `server/src/__tests__/helpers/native-restart.ts` 第 29–31 行定義：`const binariesAvailable = existsSync(defaultCapabilityRunnerdBinary()) && existsSync(fakeCodexAppServer); export const realProcessIt = binariesAvailable ? it : it.skip;`。因離線驗證環境僅編譯正式 runner binary（`paperclip-runnerd`），未編譯除錯用 mock 伺服器，故觸發合法的 `realProcessIt` 防護跳過。
+2. **Native Runner 跳過與 Attempt 2 完整覆蓋驗收（Phase 08）：**
+   - **歷史 Attempt 1 跳過分析（23 項）：**
+     - 14 項為容器專案測試（需 `PAPERCLIP_TEST_RUNNER_CONTAINER`，macOS 本機離線驗證正常跳過，屬合理可選外部環境限制）。
+     - 9 項為 `realProcessIt` 真實驗證測試（包含 `diskless` 2 項、`checkpoint-cost` 1 項、`recovery` 6 項），因當時未離線編譯 `fake-codex-app-server` fixture 而被跳過。
+   - **Attempt 2 補足與驗收：**
+     - 經 Task 2.15 授權於 clean-env 離線編譯 `fake-codex-app-server` fixture 後，以單次授權 `auth-phase08-native-runner-attempt2-20261106-bound-op-gemini` 執行 Attempt 2。
+     - 9 個原生測試檔案全數執行並 PASS（0 files skipped）。
+     - 172 項測試全數通過，僅保留 14 項容器相依測試（172 passed, 14 skipped, 0 failed, 186 total），先前漏跑之 9 項測試 100% 真實執行並通過。
 
-3. **支援能力零跳過保證：**
-   - 所有正式支援之 Agent 適配器（Claude, Codex, Cursor, Gemini, Grok, Hermes, Kimi, OpenCode, Pi）、資料庫、API 路由、工作空間管理及安全防護測試皆 100% 執行通過，無任何必備能力被跳過或弱化。
+3. **支援能力覆蓋驗證：**
+   - 所有正式支援之 Agent 適配器（Claude, Codex, Cursor, Gemini, Grok, Hermes, Kimi, OpenCode, Pi）、資料庫、API 路由、工作空間管理及安全防護測試皆 100% 執行通過。除已知且宣告之 14 項容器相依測試外，所有必備能力零跳過。
 
 ---
 
-## 八、 歷史來源等價性與 115 KB 落差揭露 (Source Equivalence & Historical Gap)
+## 八、 歷史來源等價性、勘誤與 115 KB 落差揭露 (Source Equivalence, Errata & Historical Gap)
+
+> **[勘誤記錄 (Author Errata Note - 2026-11-06)]**  
+> 1. **梯次 2 提交雜湊筆誤更正：** 原文誤記為 `3f1917f30018fca20b57faeebefd4ba2f30b910b`，經查核真實 Commit 為 `3f1eb1b7b364893141818d25569d60206ea36ccb`，真實 Git Tree 為 `4cf612e25dfcaca94cbfd7539922b9fe4a77cd1f`（非幽靈 tree `d5cff774...`）。  
+> 2. **Chat 測試檔名更正：** 原文誤記為 `chat-channel-routes.test.ts`，實際測試檔案為 `server/src/__tests__/chat-channels.integration.test.ts`（70,000+ 行，6 個 shard）。  
+> 3. **源碼指紋範圍精準界定：** 全庫生產與共用程式碼（App Code）在 3 個梯次間 100% byte-identical。24 個指紋檔案中有 2 個測試 fixture 依審查之 PR 合法演進（`file-resources-git-scan-load.test.ts` 於梯次 2 修復負載、`github-launcher-environment.test.ts` 於梯次 3 修復路徑），故「24 檔全一致」精確界定為「生產程式碼完全一致，測試 fixture 依提交梯次演進」。  
+> 4. **Phase 08 跳過說明補全：** 原文遺漏了 `recovery` 檔內 6 項 `realProcessIt` 與 14 項容器測試之區分。已於 Attempt 2 補編 `fake-codex-app-server` 並全數驗證通過。
 
 1. **三個執行梯次來源透明揭露：**
-   - **梯次 1 (Phases 01–06)：** 於 commit `cc56bbcd30a7de1a78a92b108dba772d3c02a500`（Tree `37295d5b...`）實跑通過。
-   - **梯次 2 (Phases 07–09)：** 於 commit `3f1917f30018fca20b57faeebefd4ba2f30b910b`（Tree `d5cff774...`）實跑通過。
-   - **梯次 3 (Phases 10–15)：** 於 commit `56d517eeffd24287161329b2f86595dcdef4d165`（Tree `faa45f1d...`）實跑通過。
-   - 各梯次間的原始程式碼指紋（Pi 5 檔 + PV 19 檔共 24 檔）在快照中 100% 保持一致，變更僅限於文件與已審查之環境測試 fixture，未進行任何虛假重標籤。
+   - **梯次 1 (Phases 01–06)：** 於 commit `cc56bbcd30a7de1a78a92b108dba772d3c02a500`（Tree `37295d5b7a1f26a117551069f9e7b235eeff0399`）實跑通過。
+   - **梯次 2 (Phases 07–09)：** 於 commit `3f1eb1b7b364893141818d25569d60206ea36ccb`（Tree `4cf612e25dfcaca94cbfd7539922b9fe4a77cd1f`）實跑通過。
+   - **梯次 3 (Phases 10–15)：** 於 commit `56d517eeffd24287161329b2f86595dcdef4d165`（Tree `faa45f1d9342a834539a76c8f9d26015cf263710`）實跑通過。
+   - 生產程式碼指紋跨梯次 100% 保持一致，變更僅限於文件與已審查之環境測試 fixture，未進行任何虛假重標籤。
 
 2. **歷史 115 KB 落差持續揭露：**
    - 早期 Phase 10 調試過程中產生之 115,142 bytes 原始 task log / 快取落差（已登錄於 Task 2.13 稽核）。該項歷史落差不可復原，本報告持續誠實揭露，所有既有 raw 日誌雜湊與 claim 記錄保持完整不變。
