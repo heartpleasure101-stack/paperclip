@@ -3,12 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { createServer, type Server } from "node:http";
 import { once } from "node:events";
-import { setImmediate as yieldForIo } from "node:timers/promises";
 import { createCipheriv, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, randomUUID, verify } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { companies, connectionEventDeliveries, connectionGrants, createDb, toolApplications, toolConnections } from "@paperclipai/db";
 import { eq } from "drizzle-orm";
 import { getEmbeddedPostgresTestSupport, startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
+import { settleDueTimers } from "./helpers/fake-clock-io.js";
 import { githubConnectionEventService } from "../services/github-connection-events.js";
 import { registerGitHubConnectionEventWork } from "../services/github-connection-work.js";
 import { createDeliveryWorkCoordinator } from "../services/delivery-work-coordinator.js";
@@ -101,7 +101,8 @@ const support = await getEmbeddedPostgresTestSupport();
         do {
           expect(Date.now()).toBe(observedAt);
           try { assertion(); return; } catch (error) { failure = error; }
-          await yieldForIo();
+          // Real loopback I/O needs the transport's due timers serviced; virtual time stays fixed.
+          await settleDueTimers();
         } while (performance.now() < until);
         throw failure;
       }

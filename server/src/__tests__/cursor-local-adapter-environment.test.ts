@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
 import { testEnvironment } from "@paperclipai/adapter-cursor-local/server";
+import { createInertBypassProbes } from "@paperclipai/adapter-utils/test-fixtures/sandbox-fixture-runner";
+import { createCursorSandboxRunner } from "./helpers/sandbox-install-guard.js";
 
 async function writeFakeAgentCommand(binDir: string, argsCapturePath: string): Promise<string> {
   const commandPath = path.join(binDir, "agent");
@@ -54,33 +55,10 @@ console.log(JSON.stringify({
   await fs.chmod(commandPath, 0o755);
 }
 
-function createLocalSandboxRunner() {
-  let counter = 0;
-  return {
-    execute: async (input: {
-      command: string;
-      args?: string[];
-      cwd?: string;
-      env?: Record<string, string>;
-      stdin?: string;
-      timeoutMs?: number;
-      onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
-      onSpawn?: (meta: { pid: number; startedAt: string }) => Promise<void>;
-    }) => {
-      counter += 1;
-      return await runChildProcess(`cursor-sandbox-env-${counter}`, input.command, input.args ?? [], {
-        cwd: input.cwd ?? process.cwd(),
-        env: input.env ?? {},
-        stdin: input.stdin,
-        timeoutSec: Math.max(1, Math.ceil((input.timeoutMs ?? 30_000) / 1000)),
-        graceSec: 5,
-        onLog: input.onLog ?? (async () => {}),
-        onSpawn: input.onSpawn
-          ? async (meta) => input.onSpawn?.({ pid: meta.pid, startedAt: meta.startedAt })
-          : undefined,
-      });
-    },
-  };
+// The sandbox runner is guarded before any backend runs: the test registers its own root and the
+// exact fixture executable, so an unregistered call (including an installer) is refused.
+function createLocalSandboxRunner(root: string, executables: string[]) {
+  return createCursorSandboxRunner({ ownedRoots: [root], executables });
 }
 
 describe("cursor environment diagnostics", () => {
@@ -191,6 +169,9 @@ describe("cursor environment diagnostics", () => {
     const cursorAgentPath = path.join(homeDir, ".local", "bin", "cursor-agent");
     await fs.mkdir(remoteCwd, { recursive: true });
     await writeFakeCursorAgentCommand(cursorAgentPath);
+    // The guarded runner does not inherit the host PATH, and the production sandbox PATH has no
+    // Node. The `#!/usr/bin/env node` fixture gets its runtime from its own fake HOME instead.
+    await fs.symlink(process.execPath, path.join(path.dirname(cursorAgentPath), "node"));
 
     const previousHome = process.env.HOME;
     process.env.HOME = homeDir;
@@ -203,7 +184,7 @@ describe("cursor environment diagnostics", () => {
           kind: "remote",
           transport: "sandbox",
           remoteCwd,
-          runner: createLocalSandboxRunner(),
+          runner: createLocalSandboxRunner(root, [cursorAgentPath]),
           timeoutMs: 30_000,
         },
         config: {
@@ -227,6 +208,22 @@ describe("cursor environment diagnostics", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses sandbox calls its test did not register before any process starts", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-cursor-sandbox-bypass-"));
+    try {
+      const { calls, sentinelPath } = createInertBypassProbes(root);
+      const runner = createLocalSandboxRunner(root, []);
+      const spawned = vi.fn();
+      for (const { name, call } of calls) {
+        await expect(runner.execute({ ...call, onSpawn: spawned }), name).rejects.toThrow(/blocked before execution/);
+      }
+      expect(spawned).not.toHaveBeenCalled();
+      await expect(fs.stat(sentinelPath)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
   });

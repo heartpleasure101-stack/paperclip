@@ -1,6 +1,7 @@
 """Exercise the shipped client with synthetic responses; never contacts a provider."""
 import copy
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -551,12 +552,18 @@ urllib.request.build_opener = lambda *args: Opener()
 
     def test_http_errors_do_not_echo_url_or_credentials(self):
         sensitive_url = ORIGIN + "/api/muse/v1/queries"
-        error = urllib.error.HTTPError(sensitive_url, 401, "synthetic-private-provider-detail", {}, None)
-        with patch.object(client_module.HTTP, "open", side_effect=error):
-            with self.assertRaises(RuntimeError) as raised:
-                client_module.http(sensitive_url, {"query": "identify"}, CREDENTIAL_NAME)
-            self.assertEqual(str(raised.exception), "Paperclip HTTP 401; inspect connection or receipt before retrying")
-        error.close()
+        # HTTPError is a file-like response. Give it a real, closable synthetic body: with fp=None,
+        # Python 3.9 raises KeyError from tempfile when the error is closed.
+        body = io.BytesIO(b'{"error":"synthetic-private-provider-detail"}')
+        error = urllib.error.HTTPError(sensitive_url, 401, "synthetic-private-provider-detail", {}, body)
+        try:
+            with patch.object(client_module.HTTP, "open", side_effect=error):
+                with self.assertRaises(RuntimeError) as raised:
+                    client_module.http(sensitive_url, {"query": "identify"}, CREDENTIAL_NAME)
+                self.assertEqual(str(raised.exception), "Paperclip HTTP 401; inspect connection or receipt before retrying")
+        finally:
+            error.close()
+        self.assertTrue(body.closed)
 
     def test_redirects_and_non_https_origins_are_rejected(self):
         for origin in ("http://paperclip.invalid", "https://user:secret@paperclip.invalid", "https://paperclip.invalid/path", "https://paperclip.invalid/?secret=x"):
