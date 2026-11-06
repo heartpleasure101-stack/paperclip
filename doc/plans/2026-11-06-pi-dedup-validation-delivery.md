@@ -16,22 +16,36 @@
 
 | OpenSpec Change | 分支名稱 | Fork Draft PR URL | 交付狀態 | 審查判定 |
 | :--- | :--- | :--- | :---: | :---: |
-| **Pi 單一摘要去重** (`pi-single-prompt-summary-dedup`) | `fix/pi-single-prompt-summary-dedup` | [PR #1 (heartpleasure101-stack)](https://github.com/heartpleasure101-stack/paperclip/pull/1) | **QUALIFIED READY** (Draft) | **GO (ACCEPT)** |
-| **可攜式驗證與入職迴歸** (`portable-validation-and-enrollment-regression`) | `fix/portable-validation-and-enrollment-regression` | [PR #2 (heartpleasure101-stack)](https://github.com/heartpleasure101-stack/paperclip/pull/2) | **QUALIFIED READY** (Draft) | **GO (ACCEPT)** |
+| **Pi 單一摘要去重** (`pi-single-prompt-summary-dedup`) | `fix/pi-single-prompt-summary-dedup` | [PR #1 (heartpleasure101-stack)](https://github.com/heartpleasure101-stack/paperclip/pull/1) | **ARCHIVED** (`2026-11-06-pi-single-prompt-summary-dedup`) | **GO (ACCEPT)** |
+| **可攜式驗證與入職迴歸** (`portable-validation-and-enrollment-regression`) | `fix/portable-validation-and-enrollment-regression` | [PR #2 (heartpleasure101-stack)](https://github.com/heartpleasure101-stack/paperclip/pull/2) | **ARCHIVED** (`2026-11-06-portable-validation-and-enrollment-regression`) | **GO (ACCEPT)** |
 
 > [!IMPORTANT]
-> **整合依賴關係：** PR #1（Pi 去重）在本地分支整合了 PR #2（可攜式驗證修復）。本機驗證實跑之全量測試為兩者合併之完整程式碼，而非單獨基準；所有生產程式碼在 PR #1 僅限 Pi adapter 單一窄入口（5 檔），PR #2 僅限測試替身與驗證 tooling，無任何產品 API 或生產依賴變更。兩 PR 在本階段嚴格維持 **DRAFT** 狀態，待後續專責發布與封存階段（Dedicated Publisher + Archiver）由人工決策後解除 Draft。
+> **整合依賴關係與封存完成：** PR #1（Pi 去重）在本地分支整合了 PR #2（可攜式驗證修復）。本機驗證實跑之全量測試為兩者合併之完整程式碼，而非單獨基準；所有生產程式碼在 PR #1 僅限 Pi adapter 單一窄入口（5 檔），PR #2 僅限測試替身與驗證 tooling，無任何產品 API 或生產依賴變更。兩項變更之所有任務（10/10 與 26/26）均已全數勾選驗收完畢，並透過官方鎖定之 OpenSpec 1.16 完成 delta 規格同步與正式封存。兩 PR 在遠端仍維持 **DRAFT** 狀態，等待專責發布者推送最終元資料 commit 後，由人工檢閱後正式解除 Draft。
 
 ---
 
 ## 二、 程式碼基準快照與真實梯次映射 (Frozen Commit & Cohort Mapping)
 
 ### 1. 核心程式碼快照與校驗值
-- **主工作區目前 HEAD：** `ae8a8db3960ffbb6feaa60377946d1f53109ba72`（工作區乾淨，0 uncommitted entries）
+- **主工作區目前 HEAD：** `eb73de2c48fb525132c2f6ca6c561ba499604887`（封存前已提交之最新文件快照）
 - **凍結驗證快照（Frozen Snapshot）：** `56d517eeffd24287161329b2f86595dcdef4d165`
 - **Git Tree 雜湊：** `faa45f1d9342a834539a76c8f9d26015cf263710`
-- **Pi 生產源碼驗證：** 自 `a240beb69` 起至 `ae8a8db39` 保持 100% 未動（0 diff，5 個 Pi 源碼檔案指紋完全一致）。
+- **Pi 生產源碼驗證：** 自 `a240beb69` 起至當前快照保持 100% 未動（0 diff，5 個 Pi 源碼檔案指紋完全一致）。
 - **修復前後差異：** 僅修復 2 處測試 fixture（`file-resources-git-scan-load.test.ts` 之 TCP 連線準備與 `github-launcher-environment.test.ts` 之 fake HOME local gitconfig helper），其餘產品／共用套件皆保持相同。
+
+### 2. 同步之 Main Specs 清冊 (Synced Main Specs)
+依據 OpenSpec 規範，兩個 Change 的 Delta 規格已全數合併至主規格，無任何新增之未授權規範或 TBD 佔位符：
+1. `openspec/specs/pi-summary-rendering/spec.md` (3 個 ADDED Requirements, 8 個 Scenarios)
+2. `openspec/specs/github-event-worker-lifecycle/spec.md` (3 個 ADDED Requirements, 5 個 Scenarios)
+3. `openspec/specs/isolated-validation/spec.md` (5 個 ADDED Requirements, 12 個 Scenarios)
+
+### 3. 封存路徑與歷史文件相對連結校正 (Archive Path & Link Migration)
+由於活躍之 OpenSpec Change 已封存，原指向活躍目錄之相對路徑已移轉至帶日期的封存目錄。歷史獨立審查報告保留其不可變原始位元組不作修改，在此提供作者與讀者之精確對照清冊：
+- `openspec/changes/pi-single-prompt-summary-dedup/` → `openspec/changes/archive/2026-11-06-pi-single-prompt-summary-dedup/`
+- `openspec/changes/portable-validation-and-enrollment-regression/` → `openspec/changes/archive/2026-11-06-portable-validation-and-enrollment-regression/`
+- 任務清單檔案位置：
+  - `openspec/changes/archive/2026-11-06-pi-single-prompt-summary-dedup/tasks.md` (10/10 均為 `[x]`)
+  - `openspec/changes/archive/2026-11-06-portable-validation-and-enrollment-regression/tasks.md` (26/26 均為 `[x]`)
 
 ### 2. 跨階段梯次真實提交與 Git Tree 清冊 (True Cohort Mapping)
 全量 15 個驗證階段嚴格對應三個歷史不可變快照：
@@ -166,8 +180,8 @@
 
 ## 八、 交付後續待辦 (Planned Next Stage)
 
-本回合工作已將所有交付文件、PR 描述、鏡像複審報告及永久證據套件就緒。以下項目規劃於下一專責發布階段進行：
-1. **Task 5.2 交付確認：** 將交付文件與證據索引推送至遠端分支。
-2. **Pi Task 3.3 交付確認：** 在 PR 更新與交付確認後勾選完成。
-3. **OpenSpec 封存：** 執行 `openspec archive` 將兩變更移至 `openspec/changes/archive/` 並同步 main spec。
-4. **Draft 移除：** 人工確認全數無誤後，於 GitHub 將 PR #1 與 PR #2 標記為 Ready for review。
+本回合工作已將所有交付文件、PR 描述、鏡像複審報告、永久證據套件、OpenSpec 規格同步及封存全數就緒。
+1. **Task 5.2 與 Task 3.3 驗收確認：** 已於封存前全數勾選完成（10/10 與 26/26），`openspec validate --all --strict` 與 `openspec validate --archived --strict` 均驗證 100% 通過。
+2. **OpenSpec 封存狀態：** 官方指令 `openspec archive` 已成功將兩項變更封存至 `openspec/changes/archive/2026-11-06-pi-single-prompt-summary-dedup` 與 `openspec/changes/archive/2026-11-06-portable-validation-and-enrollment-regression`，且 3 個 main specs 已同步就緒。
+3. **專責發布者推送 (Dedicated Publisher Push)：** 後續專責發布程序僅需推送本回合之文件元資料 commits 至遠端分支。
+4. **Draft 移除：** 人工確認全數無誤後，於 GitHub 將 PR #1 與 PR #2 標記為 Ready for review。本步驟本機不宣稱已在遠端完成。
