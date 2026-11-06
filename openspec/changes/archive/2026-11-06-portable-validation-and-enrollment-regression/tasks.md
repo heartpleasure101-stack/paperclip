@@ -25,7 +25,13 @@
 
 - [x] 2.11 在版本化修復工作樹只調整 file-resources-git-scan-load.test.ts 的TCP接受準備：小批次有界等待connection、不等待回應，維持500全部在途／零完成後才觀測、498joins／2scans／500個200、25health及p99<250ms；原15秒從第一負載請求起計含準備、60秒總限不變，保留故障時關閉連線／釋放Gate及立即觀察拒絕。不得採用maxSockets100降低實際負載、改產品／shared／runner或全域設定。驗證修正前後與負向清理，獨立複審後整合；逐組source/read-dependency等價清冊明確列真正測試commit，未知依賴／共享變更重跑受影響組，該檔及受影響全組必須新快照重跑，不冒稱舊結果已在新HEAD實跑。
 
-- [ ] 2.12 有界重現Phase10之GIT_CONFIG_GLOBAL前提衝突，只修正github-launcher-environment.test.ts的自有host fixture：fake HOME內明確模擬無override，保留原undefined／helper=store／token／metadata／隔離斷言；新增自有含空格global config優先於HOME假helper的明確override案例，所有stub由afterEach還原，不接觸真實config／憑證／Keychain。禁止改共用clean-env／execution-target／runner／產品或全域設定；對照修正前後、三次全檔與相關安全回歸、typecheck、負向控制及獨立複審後整合。逐組真正測試commit與byte/read-dependency等價證據不改寫；未知依賴重跑，全17project Phase10必須在新不可變快照重跑，不以單檔／單project取代，保留失敗與11–15未執行狀態。
+- [x] 2.12 有界重現Phase10之GIT_CONFIG_GLOBAL前提衝突，只修正github-launcher-environment.test.ts的自有host fixture：fake HOME內明確模擬無override，保留原undefined／helper=store／token／metadata／隔離斷言；新增自有含空格global config優先於HOME假helper的明確override案例，所有stub由afterEach還原，不接觸真實config／憑證／Keychain。禁止改共用clean-env／execution-target／runner／產品或全域設定；對照修正前後、三次全檔與相關安全回歸、typecheck、負向控制及獨立複審後整合。逐組真正測試commit與byte/read-dependency等價證據不改寫；未知依賴重跑，全17project Phase10必須在新不可變快照重跑，不以單檔／單project取代，保留失敗與11–15未執行狀態。
+
+- [x] 2.13 獨立稽核Phase10曾在module-resolution失敗後自行補cache並沿用attempt2重跑的違規：從既存AGY原始task log／備份復原可證據，分開標明Git fixture、缺workspace links、Python過舊的實際失敗，未知欄位明列未知，禁止假造原始raw或悄悄重編覆寫。補齊自有ignored依賴及所有workspace/subpath解析清冊；private ops controller以exclusive-create、原子單次授權及明確phase／source／工具矩陣綁定、單次失敗停止與遞增attempt機制通過真實控制器的無害負向控制（含並行搶授權、空／未知phase拒絕且不消耗授權），不改官方runner／產品／測試或共用clean-env。僅為Phase10明確選用既有Python>=3.10（已存在3.15），自有bin只提供python3，不換全域PATH順序／安裝工具；驗證Hermes全package、老runtime缺項負向及其他工具hash不變。1–9保持真正測試版本與原runtime矩陣，新source/read-dependency等價證據及獨立GO後才恢復全17project Phase10與未執行11–15；2.12與本項直到所需全組exit0才完成。
+
+- [x] 2.14 有界唯讀診斷Phase12 maintenance-server-routes前置build的COPILOT_INSTALLATION_INVALID：核對目前與舊快照之provider-assets、closure manifest／pins、package owner及symlink／缺檔差異，不下載或執行真實Copilot／Cursor、不改pins／verifier／測試／正式source。若可由已存在且驗證完整的pinned cache解決，先記錄來源／逐檔hash、保留失敗資產，提出自有ignored產物的離線準備方案，獨立GO後才實施與前置build；需要下載、真實CLI或變更產品時先停並要求新決策。完整保留Phase12 attempt1及後續NOT_RUN，按R3單次授權與新attempt恢復全原組，不弱化驗證或以跳過maintenance suite取得通過。
+
+- [x] 2.15 修正最終獨立審查的必需native覆蓋缺口：在同一56d凍結source以既有Rust1.97離線編譯fake-codex-app-server debug fixture，確認realProcessIt所需runner與fixture兩個實體皆存在、cache與binary來源可核對，不改任何test／skip條件／產品。保留Phase08舊163pass／23skip歷史，新單次R3授權在56d重跑完整9suites，確實執行先前缺fixture跳過的9項；僅容器14項等已證明不適用條件可另列，不將缺fixture稱為合法跳過。修正author報告的3f1 commit／tree、chat檔名及指紋／skip範圍，peer報告保持原bytes並附勘誤；完整結果交新獨立複審，不以15個exit0標籤冒充必要能力全覆蓋。
 
 ## 3. GitHub enrollment 因果修復
 
@@ -36,14 +42,14 @@
 ## 4. 整合與完整覆蓋驗證
 
 - [x] 4.1 將修復分支以一般 merge commit 整合進原摘要 branch，記錄兩個 PR、merge SHA 與修復／Pi source tree；只做本機 merge 與普通 push，不 merge GitHub PR、不 force-push。
-- [ ] 4.2 在不可變整合快照上通過 preflight、全部已知 blocker 及摘要去重相關回歸，再執行 typecheck/build；每項附退出碼，未通過則不跑昂貴全量。
-- [ ] 4.3 用官方 dry-run 取得完整入口及分組／分片 inventory，證明 chat、general excluding chat/native、native-runner、workspaces-a/b/c、serialized 無遺漏；依本機資源限制並行並保存實際選集。
-- [ ] 4.4 執行全部官方等價測試組，每組／shard 皆保留命令、退出碼、tests／skips、版本及 log；確認每個必要組 exit=0、無測試替身修補檔滲入或程式碼變動，保留先前失敗。任何未跑／被停止／失敗不得標記完成。
+- [x] 4.2 在不可變整合快照上通過 preflight、全部已知 blocker 及摘要去重相關回歸，再執行 typecheck/build；每項附退出碼，未通過則不跑昂貴全量。
+- [x] 4.3 用官方 dry-run 取得完整入口及分組／分片 inventory，證明 chat、general excluding chat/native、native-runner、workspaces-a/b/c、serialized 無遺漏；依本機資源限制並行並保存實際選集。
+- [x] 4.4 執行全部官方等價測試組，每組／shard 皆保留命令、退出碼、tests／skips、版本及 log；確認每個必要組 exit=0、無測試替身修補檔滲入或程式碼變動，保留先前失敗。任何未跑／被停止／失敗不得標記完成。
 
 ## 5. 獨立驗證與可審查交付
 
-- [ ] 5.1 全新且獨立於實作者的 agy Gemini 3.8 Flash High session 依 verify-change 檢查兩個新 capability、所有 scenario、原斷言、正式 source diff、完整選集及每組退出結果；附獨立報告，修正 findings 後重測／複審，無未解重大問題。
-- [ ] 5.2 將完整證據與回滾指示提交、push；更新兩個 change 的 tasks／最新驗證文件與兩個 PR 描述，執行 strict validate 與 apply progress 確認沒有未完成必要任務或假綠燈。
+- [x] 5.1 全新且獨立於實作者的 agy Gemini 3.8 Flash High session 依 verify-change 檢查兩個新 capability、所有 scenario、原斷言、正式 source diff、完整選集及每組退出結果；附獨立報告，修正 findings 後重測／複審，無未解重大問題。
+- [x] 5.2 將完整證據與回滾指示提交、push；更新兩個 change 的 tasks／最新驗證文件與兩個 PR 描述，執行 strict validate 與 apply progress 確認沒有未完成必要任務或假綠燈。
 
 ## Workflow follow-up
 
