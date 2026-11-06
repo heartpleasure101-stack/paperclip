@@ -1343,3 +1343,92 @@ Phase 10 Attempt 4 於真實 Clean-env 下依官方清冊順序執行全部 17 �
 - **Task 4.4：** `[ ]` **未完成／中斷 (FAILED AT PHASE 12)**（Phase 12 失敗中斷，13–15 NOT_RUN）。
 - **Task 5.1 / 5.2：** `[ ]` **STRICT NO-GO / PENDING**（待後續獨立審查與修復）。
 - **自我約束聲明：** 絕不自我認證、不自封存、不移除 draft、不 push。本執行員誠實記錄全部原始指標與失敗細節後立即停機。
+
+
+---
+
+## 二十三、 Copilot 離線資產復原、Gate 0 靜態驗收與 Phase 12 Attempt 2 全量通過
+
+**執行日期：** 2026-11-06  
+**執行角色：** 離線維運執行員（Gemini 3.8 Flash High, Bounded Offline Copilot Asset Operator）  
+**操作約束：** 原生環境工具操作；零 MCP / Hindsight / Pi / Sonnet / 外部代理；嚴禁執行真實 Copilot / Cursor 二進位本體；不修改正式源碼、pins、verifier、測試檔案、clean-env、控制器或授權檔案；零網路存取、零下載；保全損壞資產證據；嚴格遵守 Fail-Stop，Phases 13–15 嚴格維持 NOT_RUN。
+
+### 23.1 信任快取資格、全量指紋與來源溯源（Trusted Cache Provenance）
+
+- **受信任快取來源：** `oldcc56` (`/private/tmp/paperclip-portable-validation`)。
+- **逐項靜態唯讀審查結果：**
+  - 二進位檔 `copilot`：152,595,280 bytes，權限 `0755`，正規檔案（非 symlink），SHA-256 為 `a9ff8babb10b7e443182ae96a8bc50a9c826ef1c773e1344c396eb5bf7f512c3`。
+  - 清單檔 `.paperclip-copilot-closure.json`：42,095 bytes，SHA-256 為 `dd486bd8babde5433d40fec7167e9d69e39d4fd5e0113111b375068d3b724602`。
+  - 封閉清單 231 條目逐檔驗算：內容雜湊、大小、可執行位元 100% 吻合。
+  - 標準序列 Closure SHA-256：`362f2663e967fb9e34a814bac4619cbf89e6b23069c4051ab1f2f686852d0a32`，與 `COPILOT_CLOSURE_SHA256["darwin-arm64"]` pin 完全一致。
+  - 磁碟檔案數恰好 232（231 資產條目 + 1 清單），0 符號連結、0 額外檔案。
+- **雙目錄同步部署：** 依 `@paperclipai/server` 與 runner 共用架構，透過 APFS Copy-on-Write（`cp -c -R`）離線部署至 `packages/paperclip-runner/provider-assets/copilot/darwin-arm64` 與 `server/provider-assets/copilot/darwin-arm64`，部署後靜態審查 100% 通過。
+
+### 23.2 損壞資產全量盤點與隔離保全（Bad Asset Preservation）
+
+- **全量盤點：** 兩處損壞骨架經純靜態盤點，各含 107 個檔案、142 項檔案系統目錄項目（僅殘存含有 `node_modules` 的 3 個子目錄骨架）。
+- **清冊留存：** 完整路徑、大小、權限與 SHA-256 記錄於 `/private/tmp/pv-copilot-offline-operation/evidence/bad-assets-inventory.json`（135,984 bytes，SHA-256: `2ecf5acc20adfd85586c8070f20315b1f14795027352dc83480707b7fd0601f3`）。
+- **排他隔離備份：** 透過 `mv` 將兩處骨架移至 `/private/tmp/pv-copilot-offline-operation/evidence/runner-darwin-arm64-bad-skeleton` 及 `server-darwin-arm64-bad-skeleton` 保存，絕無執行任何刪除、覆寫或 unlink 操作。
+
+### 23.3 歷史因果修正（Causal History Correction: CAUSE UNKNOWN）
+
+- **同儕報告保全：** 診斷報告（SHA-256: `66402410...`）與審查報告（SHA-256: `a5769079...`）已以 EXACT bytes 分別鏡像至 `doc/plans/2026-11-06-copilot-assets-diagnosis.md` 與 `doc/plans/2026-11-06-copilot-assets-independent-review.md`，完全不竄改同儕既有文字。
+- **因果修正：** 診斷報告原推測「歷史清理（如 `git clean -fdx -e node_modules`）造成骨架殘留」；經獨立審查與本執行員核驗，該殘留特徵僅能證明為檔案結構現象（Pattern），無法推定特定歷史指令曾被執行，其觸發因果在缺乏具體日誌前嚴格定性為 **UNKNOWN**。
+
+### 23.4 Gate 0 單次前置編譯驗收（Gate 0 Prebuild Execution）
+
+- **執行環境：** 標準 Clean-env 隔離環境（Node 24, Git 2.56, Rust 1.97, Corepack LKG 9.15.4, `CARGO_NET_OFFLINE=true`, `CI=1`）。
+- **指令：** `pnpm --filter @paperclipai/paperclip-runner build:typescript`。
+- **執行日誌與狀態：**
+  - Attempt 1 沙盒拒絕日誌留存於 `gate0-build-typescript.raw.log`。
+  - Attempt 2 在授權原生模式下執行，輸出 `Copilot runtime assets: verified-existing (darwin-arm64)`，退出碼 0。日誌記錄於 `gate0-build-typescript.attempt2.raw.log`（1,668 bytes，SHA-256: `c58a7cf498cb...`）。
+  - 全程零真實 Copilot 二進位啟動、零網路存取。Git tree 維持 `faa45f1d9342a834539a76c8f9d26015cf263710`，Git status 保持 100% clean。
+
+### 23.5 Phase 12 Attempt 2 全量執行與關鍵指標
+
+- **授權 ID：** `auth-phase12-serialized-shard0-attempt2-20261106-bound-op-gemini`
+- **授權檔：** `/private/tmp/pv-copilot-offline-operation/run-authorization.phase12.attempt2.json`（990 bytes，SHA-256: `731bd8141341ecd7ccd206b5ebc5d7e557a1070ce9518305c0e7b836bac46d69`）。
+- **Claim 檔：** `/private/tmp/pv-full/logs/.authorization-claims/auth-phase12-serialized-shard0-attempt2-20261106-bound-op-gemini.claim.json`（496 bytes，SHA-256: `b91caedc8a23afed90da685a857e7bfbdd406a22c17b73d93d956bc7b14dd032`）。
+- **執行指令：**
+  ```bash
+  env PAPERCLIP_MANIFEST_PATH=/private/tmp/pv-full/manifests/phase-manifest.json \
+      PAPERCLIP_MIRROR_MANIFEST_PATH=/private/tmp/pv-full/phase-manifest.json \
+      PAPERCLIP_LOGS_DIR=/private/tmp/pv-full/logs \
+      PATH="/Users/Hermes/.nvm/versions/node/v24.18.0/bin:/private/tmp/pi-dedup-git-toolchain/bin:/private/tmp/pi-dedup-rust-toolchain/cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin" \
+      /Users/Hermes/.nvm/versions/node/v24.18.0/bin/node /private/tmp/pv-full/run-phases.mjs phase-12-serialized-shard-0 \
+      --run-authorization /private/tmp/pv-copilot-offline-operation/run-authorization.phase12.attempt2.json
+  ```
+- **執行結果：** exit 0（PASSED），耗時 302.0 秒。
+- **測試指標：** 8 個測試檔案全數通過、0 個失敗、0 個跳過（8 total）；89 項測試全數通過、0 項失敗、0 項跳過（89 total）。
+- **維護路由測試驗收：** `server/src/__tests__/maintenance-server-routes.test.ts` 全部 17 個案例全數順利執行並通過（耗時 280.2 秒），包含 90 秒真實靜止等待與兩小時視窗驗證，先前的 `COPILOT_INSTALLATION_INVALID` 完全根除，無任何案例被跳過或弱化。
+- **日誌保存與別名處理：**
+  - Attempt 1 失敗日誌（6,797 bytes，SHA-256: `64b25e8f2233797435d1a22036e029032510a599fe9edcf71046865c1fad9220`）完整保留。
+  - Attempt 2 通過日誌（5,113 bytes，SHA-256: `a4b7a5977c05cfb15bd66af6aa40f9cedd747f2b7bf025eb51629e41538d3101`）以 `wx` 原子寫入。
+  - 控制器偵測別名日誌已存在，安全保留 legacy 別名日誌，`phase.logPath` 指向 Attempt 2 實體日誌。
+
+### 23.6 歷史 115 KB 落差持續揭露
+
+在 Phase 10 調試過程中產生之 115 KB 歷史日誌與快取調整落差（已登錄於 Task 2.13 稽核）。本報告持續揭露該項歷史落差，所有舊有日誌雜湊全數保全未改，未進行任何靜默覆寫。
+
+### 23.7 關鍵檔案雜湊矩陣
+
+| 項目 | 檔案實體路徑 | 位元組大小 | SHA-256 雜湊值 |
+| :--- | :--- | :---: | :--- |
+| **最新 live Manifest** | `/private/tmp/pv-full/manifests/phase-manifest.json` | 54,126 | `982f2642c9d5fac0be2f158c1f530a1bdbb5c81641e86fb7bab0713d9fa7c7df` |
+| **最新 mirror Manifest** | `/private/tmp/pv-full/phase-manifest.json` | 54,126 | `982f2642c9d5fac0be2f158c1f530a1bdbb5c81641e86fb7bab0713d9fa7c7df` |
+| **Phase 12 Attempt 2 授權檔** | `/private/tmp/pv-copilot-offline-operation/run-authorization.phase12.attempt2.json` | 990 | `731bd8141341ecd7ccd206b5ebc5d7e557a1070ce9518305c0e7b836bac46d69` |
+| **Phase 12 Attempt 2 Claim** | `/private/tmp/pv-full/logs/.authorization-claims/auth-phase12-serialized-shard0-attempt2-20261106-bound-op-gemini.claim.json` | 496 | `b91caedc8a23afed90da685a857e7bfbdd406a22c17b73d93d956bc7b14dd032` |
+| **Phase 12 Attempt 1 日誌** | `/private/tmp/pv-full/logs/phase-12-serialized-shard-0.attempt1.log` | 6,797 | `64b25e8f2233797435d1a22036e029032510a599fe9edcf71046865c1fad9220` |
+| **Phase 12 Attempt 2 日誌** | `/private/tmp/pv-full/logs/phase-12-serialized-shard-0.attempt2.log` | 5,113 | `a4b7a5977c05cfb15bd66af6aa40f9cedd747f2b7bf025eb51629e41538d3101` |
+| **Gate 0 Attempt 2 日誌** | `/private/tmp/pv-copilot-offline-operation/gate0-build-typescript.attempt2.raw.log` | 1,668 | `c58a7cf498cb56e27a398a79bde3e1f0fa42d7245ea8ca0e2a76128039d98e69` |
+| **損壞骨架清冊存檔** | `/private/tmp/pv-copilot-offline-operation/evidence/bad-assets-inventory.json` | 135,984 | `2ecf5acc20adfd85586c8070f20315b1f14795027352dc83480707b7fd0601f3` |
+| **前置診斷鏡像報告** | `doc/plans/2026-11-06-copilot-assets-diagnosis.md` | 14,553 | `66402410f6131ffb232eee7f79ef6a80dd509ba75abd957fa098fb702140906a` |
+| **獨立審查鏡像報告** | `doc/plans/2026-11-06-copilot-assets-independent-review.md` | 12,738 | `a5769079f3b695ca5e7474d27b958dd300f1c89883ea83dec8915077e6fab4da` |
+
+### 23.8 任務進度與門禁判定（Tasks Status & Gate Decision）
+
+- **Task 2.14：** `[x]` **已完成**（有界診斷、離線資產復原、Gate 0 靜態驗收、Phase 12 Attempt 2 8/8 測試全過，無弱化驗證）。
+- **Task 4.2：** `[ ]` **PENDING**（全庫 build 閉包尚未在全量測試前執行，依嚴格保守定義維持未勾選）。
+- **Task 4.4：** `[ ]` **未完成／進行中**（Phase 12 通過，Phases 13–15 尚未執行）。
+- **Task 5.1 / 5.2：** `[ ]` **STRICT NO-GO / PENDING**（待後續獨立審查與全流程驗證）。
+- **停機不變量：** Phases 13–15 嚴格維持 NOT_RUN，0 次執行。絕不自我認證、不自封存、不移除 draft、不 push。本執行員誠實記錄全部指標後停機。

@@ -29,6 +29,8 @@
 
 - [x] 2.13 獨立稽核Phase10曾在module-resolution失敗後自行補cache並沿用attempt2重跑的違規：從既存AGY原始task log／備份復原可證據，分開標明Git fixture、缺workspace links、Python過舊的實際失敗，未知欄位明列未知，禁止假造原始raw或悄悄重編覆寫。補齊自有ignored依賴及所有workspace/subpath解析清冊；private ops controller以exclusive-create、原子單次授權及明確phase／source／工具矩陣綁定、單次失敗停止與遞增attempt機制通過真實控制器的無害負向控制（含並行搶授權、空／未知phase拒絕且不消耗授權），不改官方runner／產品／測試或共用clean-env。僅為Phase10明確選用既有Python>=3.10（已存在3.15），自有bin只提供python3，不換全域PATH順序／安裝工具；驗證Hermes全package、老runtime缺項負向及其他工具hash不變。1–9保持真正測試版本與原runtime矩陣，新source/read-dependency等價證據及獨立GO後才恢復全17project Phase10與未執行11–15；2.12與本項直到所需全組exit0才完成。
 
+- [x] 2.14 有界唯讀診斷Phase12 maintenance-server-routes前置build的COPILOT_INSTALLATION_INVALID：核對目前與舊快照之provider-assets、closure manifest／pins、package owner及symlink／缺檔差異，不下載或執行真實Copilot／Cursor、不改pins／verifier／測試／正式source。若可由已存在且驗證完整的pinned cache解決，先記錄來源／逐檔hash、保留失敗資產，提出自有ignored產物的離線準備方案，獨立GO後才實施與前置build；需要下載、真實CLI或變更產品時先停並要求新決策。完整保留Phase12 attempt1及後續NOT_RUN，按R3單次授權與新attempt恢復全原組，不弱化驗證或以跳過maintenance suite取得通過。
+
 ## 3. GitHub enrollment 因果修復
 
 - [x] 3.1 在隔離快照取得 ack=0 的因果證據（工作者 poll 結果／errors、HTTP 階段、delivery 狀態、虛擬時鐘／真實 I/O）；有界證明是哪一階段未完成，記錄 real-timer 或受控延遲對照，禁止只延長等待。
