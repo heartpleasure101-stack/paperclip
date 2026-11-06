@@ -1267,3 +1267,79 @@ Phase 10 Attempt 4 於真實 Clean-env 下依官方清冊順序執行全部 17 �
 - **Task 4.2 / 4.3：** `[ ]` **PENDING**（全庫 typecheck/build 及全量 15 組驗收未在此 slice 執行，維持待辦）。
 - **Task 4.4 / 5.1 / 5.2：** `[ ]` **STRICT NO-GO / PENDING**（Phases 11–15 從未執行，全量 15 組尚未完成，等待後續獨立最終驗收）。
 - **自我約束：** 絕不自我認證、不自封存、不移除 draft、不 push。
+
+## 22. 後續五組執行（Phases 11–15）、Phase 11 通過與 Phase 12 Fail-Stop 診斷記錄
+
+### 22.1 執行背景與授權機制（Hardened Controller & Atomic Claims）
+
+依據父層指令授權循序執行 Phases 11–15（每組僅執行單次，且前一組 exit 0 後方得推進）：
+- **R3 硬化控制器（SHA-256: `9de644399adc7ac8b2468f95155a16400e27269c1353c2888ad031a53a94bfd0`）：** 強型別參數、真實 Git 雙向防偽造校驗、固定目錄排他登記簿、參數邊界 JSON 陣列雜湊與前置排他建立（`wx`）。
+- **通用工具矩陣（Common Tool Matrix）：** Phases 11–15 採用通用工具矩陣（Python 3.9.6），不繼承 Phase 10 之私有 Python 3.15。
+- **單次排他授權：** 每組執行前皆於專屬操作目錄 `/private/tmp/pv-final5-operation/` 以排他 `wx` 備份 live Manifest 並建立單次授權檔（`run-authorization.phase11.json`、`run-authorization.phase12.json`），經控制器原子登記至 `logs/.authorization-claims/`。
+
+### 22.2 前置不可變性與官方 Dry-Run 選集盤點
+
+1. **不可變快照與 Preflight：**
+   - 快照目錄：`/private/tmp/pv-git-env-fixture-fix`（HEAD: `56d517eeffd24287161329b2f86595dcdef4d165`，TREE: `faa45f1d9342a834539a76c8f9d26015cf263710`，0 uncommitted entries）。
+   - 24 項源碼指紋 100% 吻合（24/24 PASS）。
+   - Preflight stage full 10/10 PASS、Node 19 項環境單元測試全綠、模組邊界檢查通過、scoped typecheck（`tsc --noEmit -p packages/adapter-utils/tsconfig.json`）0 errors 通過。
+   - 負載檔 `file-resources-git-scan-load.test.ts` 6 項全過（p99=3.29ms, 500/500 200s）；Git 環境檔 `github-launcher-environment.test.ts` 35 passed, 1 skipped（36 項全過）；`vitest-chat-shards.test.ts` 1 項全過。
+2. **官方 Dry-Run 15 組完整選集盤點：**
+   - 官方 `run-vitest-stable.mjs ... --dry-run` 盤點結果：
+     - Serialized Suites：4 片共 166 檔（Shard 0: 8, Shard 1: 42, Shard 2: 58, Shard 3: 58），聯集恰好 166 檔，零重疊、零遺漏。
+     - General Server Suites：共 1,434 檔（Shards 0–3 每片 356 檔合計 1,424 檔 + Native Runner 9 檔 + Chat Suite 1 檔）。
+     - Workspace Projects：共 20 個專案（Workspaces-a 2 個、Workspaces-b 17 個、Workspaces-c 1 個）。
+     - Chat Vitest Shards：3 個 Shard，每 Shard 2 個 worker slices，覆蓋 6 個 vitest native shards。
+   - **Task 4.3 判定：** 官方選集盤點完整性已獲嚴格證明，標記完成 `[x]`。
+
+### 22.3 Phase 11 (`phase-11-general-workspaces-c`) 執行指標
+
+- **授權 ID：** `auth-phase11-workspaces-c-20261106-bound-op5`
+- **執行指令：**
+  ```bash
+  env PAPERCLIP_MANIFEST_PATH=/private/tmp/pv-full/manifests/phase-manifest.json \
+      PAPERCLIP_MIRROR_MANIFEST_PATH=/private/tmp/pv-full/phase-manifest.json \
+      PAPERCLIP_LOGS_DIR=/private/tmp/pv-full/logs \
+      PATH="/Users/Hermes/.nvm/versions/node/v24.18.0/bin:/private/tmp/pi-dedup-git-toolchain/bin:/private/tmp/pi-dedup-rust-toolchain/cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin" \
+      node /private/tmp/pv-full/run-phases.mjs phase-11-general-workspaces-c \
+      --run-authorization /private/tmp/pv-final5-operation/run-authorization.phase11.json
+  ```
+- **執行結果：** exit 0（PASSED），耗時 125.9 秒。
+- **測試指標：** 72 個測試檔案通過、0 個失敗、0 個跳過（72 total）；313 項測試通過、0 項失敗、0 項跳過（313 total）。
+- **日誌檔案：** `/private/tmp/pv-full/logs/phase-11-general-workspaces-c.attempt1.log`（38,045 bytes，SHA-256: `3fa7dcd81dcc418be60d875b02169877376cbf737922fb981da705edff53d412`）。
+
+### 22.4 Phase 12 (`phase-12-serialized-shard-0`) Fail-Stop 中斷與根因分析
+
+- **授權 ID：** `auth-phase12-serialized-shard0-20261106-bound-op5`
+- **執行結果：** exit 1（FAILED），耗時 25.6 秒。
+- **測試指標：** 1 個檔案失敗、7 個檔案通過（8 total）；72 項測試通過、17 項跳過、0 項失敗（89 total）。
+- **日誌檔案：** `/private/tmp/pv-full/logs/phase-12-serialized-shard-0.attempt1.log`（6,797 bytes，SHA-256: `64b25e8f2233797435d1a22036e029032510a599fe9edcf71046865c1fad9220`）。
+- **失敗定位與因果鏈：**
+  - 失敗測試檔：`server/src/__tests__/maintenance-server-routes.test.ts`（assembled maintenance server production wiring）。
+  - 錯誤根因：在 clean-env 隔離環境下，該測試之 beforeAll 調用 `pnpm --filter @paperclipai/paperclip-runner build:typescript`，觸發 `install-copilot-assets.mjs` 中之 `verifyCopilotInstallation()` 拋出 `COPILOT_INSTALLATION_INVALID: Install the verified Copilot runtime beside the admitted sidecar.`（`retryable: false`）。
+- **Fail-Stop 執行：** 控制器捕獲 exit code 1，立即終止流程。零中途修補、零補 cache、零 hot-copy、零重試。
+
+### 22.5 未執行 Phase 13–15 隔離說明
+
+- **Phases 13–15 嚴格維持未執行（NOT_RUN）：**
+  - Phase 13 (`phase-13-serialized-shard-1`)：NOT_RUN（0 attempts, 0 bytes log）。
+  - Phase 14 (`phase-14-serialized-shard-2`)：NOT_RUN（0 attempts, 0 bytes log）。
+  - Phase 15 (`phase-15-serialized-shard-3`)：NOT_RUN（0 attempts, 0 bytes log）。
+- 嚴格禁止任何未授權推進或單組繞過。
+
+### 22.6 關鍵檔案雜湊矩陣
+
+| 項目 | 檔案實體路徑 | 位元組大小 | SHA-256 雜湊值 |
+| :--- | :--- | :---: | :--- |
+| **最新 live Manifest** | `/private/tmp/pv-full/manifests/phase-manifest.json` | 53,406 | `7d2e0fcbd5992324ba92fc015429e799420608e658b19dad920098d131b1237a` |
+| **最新 mirror Manifest** | `/private/tmp/pv-full/phase-manifest.json` | 53,406 | `7d2e0fcbd5992324ba92fc015429e799420608e658b19dad920098d131b1237a` |
+| **Phase 11 Claim** | `logs/.authorization-claims/auth-phase11-workspaces-c-20261106-bound-op5.claim.json` | 440 | `ddfaec6de715d47593db5935d9af060788ac89905946adef6236199f94b87112` |
+| **Phase 12 Claim** | `logs/.authorization-claims/auth-phase12-serialized-shard0-20261106-bound-op5.claim.json` | 448 | `0c6c51b970d550bfb7fefdc9c113d475ea2513330e8f3c72dff4659b0e30e793` |
+
+### 22.7 任務進度與門禁判定（Tasks Status & Gate Decision）
+
+- **Task 4.2：** `[ ]` **PENDING**（Preflight 通過，全庫 runtime assets 存在缺口，依保守定義維持未勾選）。
+- **Task 4.3：** `[x]` **已完成**（官方 dry-run 完整選集盤點 1434 server、20 workspaces、166 serialized 證明無遺漏）。
+- **Task 4.4：** `[ ]` **未完成／中斷 (FAILED AT PHASE 12)**（Phase 12 失敗中斷，13–15 NOT_RUN）。
+- **Task 5.1 / 5.2：** `[ ]` **STRICT NO-GO / PENDING**（待後續獨立審查與修復）。
+- **自我約束聲明：** 絕不自我認證、不自封存、不移除 draft、不 push。本執行員誠實記錄全部原始指標與失敗細節後立即停機。
