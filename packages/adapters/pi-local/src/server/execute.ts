@@ -687,6 +687,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         resumedSession: attemptResumedSession,
         includeCommunicationGuidance: false,
         includeExecutionContract: systemOwnsDefaultPolicy ? false : undefined,
+        dedupeIdenticalContinuationSummary: true,
       });
       const attemptBootstrapPrompt = !attemptResumedSession && bootstrapPromptTemplate.trim().length > 0
         ? renderTemplate(bootstrapPromptTemplate, templateData).trim()

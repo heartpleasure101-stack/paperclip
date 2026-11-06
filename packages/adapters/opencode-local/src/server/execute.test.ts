@@ -107,6 +107,39 @@ describe("OpenCode local skill injection", () => {
     expect(prompts[1]).toContain("Connection tools:");
   });
 
+  it("keeps both identical continuation summary copies for non-Pi adapters (dedup stays opt-in)", async () => {
+    const commandPath = path.join(configHome, "fake-opencode-summary");
+    await fs.writeFile(commandPath, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const body = "# Continuation Summary\n\n- 非 Pi adapter 的相同摘要必須維持兩份";
+    const fixture = createPromptContextFixture();
+    const executionContinuation = { ...fixture.executionContinuation, completedWork: body };
+    const context = {
+      ...fixture,
+      executionContinuation,
+      paperclipWake: {
+        ...fixture.paperclipWake,
+        executionContinuation,
+        continuationSummary: { key: "continuation-summary", title: "Continuation Summary", body, bodyTruncated: false },
+      },
+    };
+    let prompt = "";
+    runProcessMock
+      .mockReset()
+      .mockResolvedValueOnce(probeResult({ stdout: JSON.stringify({ type: "text", sessionID: "fresh", part: { text: "done" } }) }));
+    await execute({
+      runId: "run-non-pi-summary",
+      agent: { id: "agent-1", companyId: "company-1", name: "OpenCode", adapterType: "opencode_local", adapterConfig: {} },
+      runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: null },
+      config: { command: commandPath, cwd: configHome, model: "openai/gpt-5", env: { OPENCODE_ALLOW_ALL_MODELS: "1" } },
+      context,
+      onLog: async () => {},
+      onMeta: async (meta) => { prompt = String(meta.prompt ?? ""); },
+    });
+    expect(prompt.split("非 Pi adapter 的相同摘要必須維持兩份").length - 1).toBe(2);
+    expect(prompt).toContain("Issue continuation summary:\n# Continuation Summary");
+    expect(prompt).not.toContain("Same text as completedWork");
+  });
+
   it("injects runtime skills into the configured child HOME", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-opencode-configured-home-"));
     const processHome = path.join(root, "process-home");
